@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr list --state merged --search \"[facts-list-add-edit-delete]\" --json number,title)",
+      "Bash(gh pr list --state open --search \"[facts-list-add-edit-delete]\" --json number,title,headRefName)",
+      "Bash(./skills/fan-gameplan/scripts/fan-patches.sh facts-list-add-edit-delete)",
+      "Bash(/Users/brooksflannery/.claude/skills/fan-gameplan/scripts/fan-patches.sh facts-list-add-edit-delete 2>&1)",
+      "Bash(chmod +x /Users/brooksflannery/.claude/skills/fan-gameplan/scripts/fan-patches.sh && /Users/brooksflannery/.claude/skills/fan-gameplan/scripts/fan-patches.sh facts-list-add-edit-delete 2>&1)"
+    ]
+  }
+}
