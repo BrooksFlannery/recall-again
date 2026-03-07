@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Env and secrets
+.env
+.env.local
+.env.*.local
+
+# Build and tooling
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Drizzle
+drizzle/*.sql
+
+# OS and editor
+.DS_Store
+*.log
+.idea/
+.vscode/
