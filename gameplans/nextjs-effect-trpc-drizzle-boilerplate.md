@@ -99,7 +99,7 @@ Scaffold a Next.js App Router project, then add dependencies and configuration f
 
 ## Acceptance Criteria
 
-- [ ] `pnpm install` (or npm/yarn) and `pnpm dev` start the Next.js app without errors.
+- [ ] `bun install` and `bun run dev` start the Next.js app without errors.
 - [ ] Drizzle schema exists; `db:generate` produces migrations; `db:migrate` applies them. Local dev uses Postgres in Docker; prod uses Neon.
 - [ ] One tRPC query procedure is implemented using Effect (e.g. returns health or reads/writes the example table).
 - [ ] Procedure input/output use Zod schemas; at least one schema is derived from Drizzle via zod-drizzle.

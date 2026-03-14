@@ -2,6 +2,7 @@
   "name": "nextjs-effect-trpc-drizzle-boilerplate",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.1.38",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,7 +11,8 @@
     "test": "bun test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "auth:generate": "npx @better-auth/cli@latest generate --config src/server/auth.ts --output src/server/db/schema.ts --yes"
   },
   "dependencies": {
     "@effect/platform": "^0.69.0",

@@ -6,11 +6,11 @@ Project rules for testing and dependency injection. These are non-negotiable for
 
 This is a **Bun project**. Use **Bun** for everything: installs, scripts, and testing.
 
-- **Install deps**: `bun install` (not npm/pnpm/yarn)
+- **Install deps**: `bun install` (not npm or yarn)
 - **Run scripts**: `bun run dev`, `bun run build`, `bun run db:migrate`, etc.
 - **Test**: `bun test` (see below)
 
-Do not introduce or document npm, pnpm, or yarn for this repo.
+Do not introduce or document npm or yarn for this repo.
 
 ## Test runner: Bun test
 
@@ -41,7 +41,7 @@ We are **not allowed** to mock the database.
 
 | Rule | Meaning |
 |------|--------|
-| **Bun-only project** | Use Bun for install, scripts, and testing; no npm/pnpm/yarn. |
+| **Bun-only project** | Use Bun for install, scripts, and testing; no npm or yarn. |
 | **Bun test** | `bun test` is the only test runner (no Jest, Vitest, etc.). |
 | **No mocking** | Use Effect Layers/Context for DI; if you’re mocking, refactor to be more effectful. |
 | **Real DB** | Tests use a real Postgres instance; never mock the DB. |
