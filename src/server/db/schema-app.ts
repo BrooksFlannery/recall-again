@@ -26,9 +26,35 @@ export const appUser = pgTable("app_user", {
     .notNull(),
 });
 
-export const appUserRelations = relations(appUser, ({ one }) => ({
+export const appUserRelations = relations(appUser, ({ one, many }) => ({
   authUser: one(user, {
     fields: [appUser.authUserId],
     references: [user.id],
+  }),
+  facts: many(fact),
+}));
+
+/** A single fact belonging to an app user. */
+export const fact = pgTable("fact", {
+  id: text("id")
+    .primaryKey()
+    .default(sql`'fact_' || gen_random_uuid()::text`),
+  userId: text("user_id")
+    .notNull()
+    .references(() => appUser.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const factRelations = relations(fact, ({ one }) => ({
+  user: one(appUser, {
+    fields: [fact.userId],
+    references: [appUser.id],
   }),
 }));
