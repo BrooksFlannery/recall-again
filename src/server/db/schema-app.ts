@@ -1,8 +1,7 @@
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, timestamp } from "drizzle-orm/pg-core";
 
-/** Example app table for the health/ping tRPC procedure. */
+/** Append-only ping log. Each row records one ping. */
 export const ping = pgTable("ping", {
-  id: text("id").primaryKey(),
-  message: text("message").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  id: serial("id").primaryKey(),
+  pingedAt: timestamp("pinged_at").defaultNow().notNull(),
 });
