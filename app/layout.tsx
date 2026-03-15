@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
+import "./globals.css";
 import { Providers } from "./providers";
+import { Header } from "./components/header";
 
 export const metadata: Metadata = {
-  title: "Next.js Effect tRPC Drizzle Boilerplate",
-  description: "Production-ready Next.js with Effect, tRPC, Drizzle, Better Auth",
+  title: "Recall",
+  description:
+    "Production-ready Next.js with Effect, tRPC, Drizzle, Better Auth",
 };
 
 export default function RootLayout({
@@ -14,7 +17,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          <Header />
+          {children}
+        </Providers>
       </body>
     </html>
   );
