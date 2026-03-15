@@ -9,11 +9,11 @@
 
 ## Problem Statement
 
-The app has no app-level user or fact storage. All domain data would otherwise couple directly to the auth provider’s `user` table, making it hard to change or extend auth. There is no row-level isolation for future facts or quizzes, and tRPC context does not expose a resolved app user or support protected procedures. We need an app user table, session → app user resolution (with create-if-missing), a fact table with RLS, and Effect-based fact CRUD behind a protected tRPC API so that the codebase is ready for M2/M3 without half-secured state.
+The app has no app-level user or fact storage. All domain data would otherwise couple directly to the auth provider’s `user` table, making it hard to change or extend auth. There is no row-level isolation for future facts or quizzes, and tRPC context does not expose a resolved app user or support protected procedures. We need an app user table, a fact table with RLS, and Effect-based fact CRUD behind a protected tRPC API so that the codebase is ready for M2/M3 without half-secured state.
 
 ## Solution Summary
 
-Add `app_user` (id, authUserId, timestamps) and `fact` (id, userId, content, timestamps) with DB-side prefixed ID defaults. Enable RLS on `fact` so that policies restrict access by `current_setting('app.user_id')`. Resolve and create app user in **one place only: tRPC context**; set `app.user_id` in a **protectedProcedure** via `SET LOCAL` before running any query so RLS applies. Implement fact CRUD as an Effect service (repository) and tRPC procedures that run in Effect with a request-scoped DB layer that has already executed `SET LOCAL`. Use **drizzle-zod** (`createSelectSchema`) for fact row/output and ad-hoc Zod for create/update input. One migration per patch; tests use Bun and real DB with Effect DI.
+Add `app_user` (id, authUserId, timestamps) and `fact` (id, userId, content, timestamps) with DB-side prefixed ID defaults. Enable RLS on `fact` so that policies restrict access by `current_setting(‘app.user_id’)`. Create `app_user` exactly once via a **better-auth `databaseHooks.user.create.after` hook** in `auth.ts`; tRPC context only reads (SELECT) the existing row. Set `app.user_id` in a **protectedProcedure** via `SET LOCAL` before running any query so RLS applies. Implement fact CRUD as an Effect service (repository) and tRPC procedures that run in Effect with a request-scoped DB layer that has already executed `SET LOCAL`. Use **drizzle-zod** (`createSelectSchema`) for fact row/output and ad-hoc Zod for create/update input. One migration per patch; tests use Bun and real DB with Effect DI.
 
 ## Mergability Strategy
 
@@ -66,9 +66,10 @@ Add `app_user` (id, authUserId, timestamps) and `fact` (id, userId, content, tim
 - **File**: New migration under `drizzle/`.
 - **Migration**: Enable RLS on `fact`; add policy so SELECT/INSERT/UPDATE/DELETE only where `fact.user_id = current_setting('app.user_id', true)::text`. Use `USING` and `WITH CHECK` as needed. Document that RLS depends on `app.user_id` being set (e.g. in protectedProcedure).
 
-### 4. tRPC context: session → app user (resolve or create)
+### 4. tRPC context: session → app user (read only)
 
-- **File**: `app/api/trpc/[trpc]/route.ts`: pass `createContext: async (opts) => { ... }` using `opts.req` (FetchCreateContextFnOptions). Call `auth.api.getSession({ headers: opts.req.headers })`. If no session, return `{ appUser: null }`. If session, query `app_user` by `authUserId = session.user.id`; if missing, insert one (omit `id` to use DB default), then return `{ appUser }`.
+- **File**: `src/server/auth.ts`: add `databaseHooks.user.create.after` that inserts a new `app_user` row (`authUserId = user.id`). This is the only place `app_user` is created.
+- **File**: `app/api/trpc/[trpc]/route.ts`: pass `createContext: async (opts) => { ... }` using `opts.req` (FetchCreateContextFnOptions). Call `auth.api.getSession({ headers: opts.req.headers })`. If no session, return `{ appUser: null }`. If session, SELECT `app_user` by `authUserId = session.user.id` and return `{ appUser }`.
 - **File**: `src/server/trpc/trpc.ts`: extend `Context` type to `{ appUser: { id: string } | null }`. Export `Context` type. Keep `publicProcedure`; do not add protectedProcedure yet.
 
 ```ts
@@ -78,10 +79,10 @@ export type Context = {
 };
 ```
 
-- **File**: New or existing: helper to find-or-create app user by auth user id. Signature:
+- **File**: New helper `src/server/trpc/app-user.ts`: read app user by auth user id. Signature:
 
 ```ts
-const findOrCreateAppUserByAuthId = (db: DrizzleClient, authUserId: string): Promise<{ id: string }>
+const getAppUserByAuthId = (db: DrizzleClient, authUserId: string): Promise<{ id: string } | null>
 ```
 
 ### 5. protectedProcedure and SET LOCAL layer
@@ -112,7 +113,8 @@ const findOrCreateAppUserByAuthId = (db: DrizzleClient, authUserId: string): Pro
 ## Acceptance Criteria
 
 - [ ] `app_user` table exists with id (prefixed), authUserId (FK to auth user, unique), createdAt, updatedAt.
-- [ ] On each authenticated request, tRPC context resolves session → auth user → app user, creating app user if missing.
+- [ ] `app_user` is created exactly once via `databaseHooks.user.create.after` when a new auth user is created.
+- [ ] On each authenticated request, tRPC context resolves session → auth user → app user (SELECT only; never creates).
 - [ ] `fact` table exists with id (prefixed), userId (FK to app_user.id), content, createdAt, updatedAt.
 - [ ] RLS enabled on `fact`; policies restrict SELECT/INSERT/UPDATE/DELETE by `current_setting('app.user_id')`; app code does not add explicit `WHERE userId = ?` for isolation.
 - [ ] tRPC context includes current app user (or null); protectedProcedure requires auth and sets `app.user_id` before running queries.
@@ -126,7 +128,7 @@ const findOrCreateAppUserByAuthId = (db: DrizzleClient, authUserId: string): Pro
 ## Explicit Opinions
 
 1. **SET LOCAL only**: We set `app.user_id` in protectedProcedure before any query; RLS on `fact` uses `current_setting('app.user_id')`. No dedicated Postgres role for M1.
-2. **One place for resolve/create**: App user is resolved or created only in tRPC context creation, not in middleware.
+2. **app_user created in auth hook, read in tRPC context**: `app_user` is created exactly once via `databaseHooks.user.create.after` in `auth.ts`. tRPC context only SELECTs — no create-if-missing on the hot path.
 3. **No title/source on fact in M1**: Fact has id, userId, content, createdAt, updatedAt only.
 4. **Prefixed IDs**: DB-side per-table DEFAULT: `'user_' || gen_random_uuid()::text` for app_user.id, `'fact_' || gen_random_uuid()::text` for fact.id. No app-side id helper for these tables.
 5. **Effect required**: Fact CRUD and tRPC integration use Effect (Context/Layer, Effect.runPromise). Tests use Effect DI and real DB.
@@ -177,15 +179,17 @@ const findOrCreateAppUserByAuthId = (db: DrizzleClient, authUserId: string): Pro
 
 **Files to modify:**
 
+- `src/server/auth.ts`
 - `app/api/trpc/[trpc]/route.ts`
 - `src/server/trpc/trpc.ts`
-- New helper (e.g. `src/server/trpc/app-user.ts` or in auth)
+- New helper: `src/server/trpc/app-user.ts`
 
 **Changes:**
 
-1. Change `createContext` to async and accept `opts` from fetch adapter; use `auth.api.getSession({ headers: opts.req.headers })`. If no session, return `{ appUser: null }`. If session, call find-or-create app user by `session.user.id`, return `{ appUser: { id } }`.
-2. Update `Context` type in trpc.ts to `{ appUser: { id: string } | null }`.
-3. Implement `findOrCreateAppUserByAuthId(db, authUserId)` that selects by authUserId or inserts (omit id) and returns `{ id }`.
+1. Add `databaseHooks.user.create.after` to `auth.ts`: insert `app_user` row on auth user creation.
+2. Change `createContext` to async and accept `opts` from fetch adapter; use `auth.api.getSession({ headers: opts.req.headers })`. If no session, return `{ appUser: null }`. If session, SELECT `app_user` by `session.user.id`, return `{ appUser: { id } }`.
+3. Update `Context` type in trpc.ts to `{ appUser: { id: string } | null }`.
+4. Implement `getAppUserByAuthId(db, authUserId)` that selects by authUserId and returns `{ id }` or `null`.
 
 ### Patch 5 [BEHAVIOR]: protectedProcedure and SET LOCAL layer
 

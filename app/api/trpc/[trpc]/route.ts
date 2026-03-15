@@ -2,7 +2,7 @@ import { fetchRequestHandler, type FetchCreateContextFnOptions } from "@trpc/ser
 import { appRouter } from "@/server/trpc/root";
 import { auth } from "@/server/auth";
 import { db } from "@/server/db";
-import { findOrCreateAppUserByAuthId } from "@/server/trpc/app-user";
+import { getAppUserByAuthId } from "@/server/trpc/app-user";
 import type { NextRequest } from "next/server";
 
 const handler = (req: NextRequest) =>
@@ -15,13 +15,8 @@ const handler = (req: NextRequest) =>
       if (!session) {
         return { appUser: null };
       }
-      try {
-        const appUser = await findOrCreateAppUserByAuthId(db, session.user.id);
-        return { appUser };
-      } catch (err) {
-        console.error("[trpc] failed to resolve app user", err);
-        return { appUser: null };
-      }
+      const appUser = await getAppUserByAuthId(db, session.user.id);
+      return { appUser };
     },
   });
 
