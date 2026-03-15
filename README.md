@@ -34,7 +34,7 @@ Edit `.env` — see [Environment Variables](#environment-variables) below.
 ### 3. Start the database (local)
 
 ```bash
-docker compose up -d
+bun run db:up
 ```
 
 This starts a standard PostgreSQL container on `localhost:5432`.
@@ -61,6 +61,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `bun run build` | Production build |
 | `bun run start` | Start production server |
 | `bun test` | Run tests with Bun test runner |
+| `bun run db:up` | Start local Postgres via Docker Compose |
 | `bun run db:generate` | Generate Drizzle migration files from schema |
 | `bun run db:migrate` | Apply pending migrations to the database |
 | `bun run db:studio` | Open Drizzle Studio (local DB browser) |
@@ -108,7 +109,7 @@ The public base URL of your app.
 A `docker-compose.yml` is included. Start Postgres with:
 
 ```bash
-docker compose up -d
+bun run db:up
 ```
 
 Then run migrations:
