@@ -1,10 +1,21 @@
 # Introduction to Better Auth
 
-Better Auth is a framework-agnostic, universal authentication and authorization framework for TypeScript. It provides a comprehensive set of features out of the box and includes a plugin ecosystem that simplifies adding advanced functionalities. Whether you need 2FA, passkey, multi-tenancy, multi-session support, or even enterprise features like SSO, creating your own IDP, it lets you focus on building your application instead of reinventing the wheel.
+Better Auth is a comprehensive, framework-agnostic authentication and authorization system built with TypeScript. It allows developers to implement secure user identity management without reinventing fundamental security infrastructure.
 
-## Features
+## Core Features
 
-Better Auth aims to be the most comprehensive auth library. It provides a wide range of features out of the box and allows you to extend it with plugins.
+- **Email & Password Authentication**: Secure credential-based sign-in
+- **Account & Session Management**: User lifecycle and session handling
+- **Social Sign-on**: Integration with multiple OAuth providers
+- **Two Factor Authentication**: Enhanced account security options
+- **Rate Limiting**: Built-in protection against abuse
+- **Organization & Access Control**: Multi-tenant support and role management
+- **Automatic Database Management**: Schema migrations handled automatically
+- **Plugin Ecosystem**: Extensible architecture for advanced features (passkeys, magic links, SSO, custom IDP)
+
+## Framework Support
+
+Compatible with Next.js, Nuxt, SvelteKit, Astro, Express, and many others.
 
 ## AI tooling
 
