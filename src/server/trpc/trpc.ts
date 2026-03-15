@@ -1,6 +1,8 @@
 import { initTRPC } from "@trpc/server";
 
-export type Context = Record<string, never>;
+export type Context = {
+  appUser: { id: string } | null;
+};
 
 const t = initTRPC.context<Context>().create();
 

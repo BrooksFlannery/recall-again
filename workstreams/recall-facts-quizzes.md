@@ -15,7 +15,7 @@ Users create and manage **facts** (things they want to remember). The system gen
 
 - **Decoupling from auth provider**: App data (facts, quizzes, etc.) should reference an **app-level user**, not the auth provider’s user table. That way we can switch or extend auth without rewriting app schema and RLS.
 - **RLS design**: Policies must enforce “user can only see/edit their own facts” so application code can rely on the DB and avoid passing `userId` everywhere. RLS will use the **app user** id.
-- **Session → app user**: tRPC (and any cron) need to resolve session → auth user → app user (create app user on first sign-in if missing) and use app user id for RLS and all app logic.
+- **Session → app user**: tRPC (and any cron) need to resolve session → auth user → app user and use app user id for RLS and all app logic. `app_user` is created at sign-up via a better-auth hook; tRPC context only reads.
 - **AI inference**: Choosing model, prompt shape, and where it runs (serverless vs long-running) for “fact → question(s)” generation.
 - **Scheduling semantics**: Fibonacci sequence (1, 1, 2, 3, 5, 8…) and “reset on wrong” must be represented in the schema and cron logic; “due” definition (e.g. due date ≤ today) and timezone handling.
 - **Cron ownership**: Daily job must iterate users and create quizzes from overdue facts without impersonating a single user session (e.g. service role or per-user connection with RLS).
@@ -27,7 +27,7 @@ Users create and manage **facts** (things they want to remember). The system gen
 **Definition of Done**:
 
 - **App user table**: `app_user` table (or equivalent) with: `id` (prefixed id, e.g. `user_<uuid>` — see [docs/ids.md](../docs/ids.md)), `authUserId` (FK to Better Auth `user.id`, unique so one app user per auth user), `createdAt`, `updatedAt`. All app domain data (facts, later quizzes, etc.) references this table, not the auth `user` table.
-- **Resolve or create app user**: On each authenticated request, resolve session → auth user → app user; if no app user exists for that auth user, create one (e.g. on first sign-in). tRPC context exposes the **app user** (id and any needed fields), not the raw auth user.
+- **Resolve app user**: `app_user` is created once via a better-auth `databaseHooks.user.create.after` hook at sign-up. On each authenticated request, tRPC context resolves session → auth user → app user via a simple SELECT. tRPC context exposes the **app user** (id and any needed fields), not the raw auth user.
 - **Schema**: `fact` table with at least: `id` (prefixed id, e.g. `fact_<uuid>`), `userId` (FK to `app_user.id`), `content` (text), `createdAt`, `updatedAt`. Optional: `source`, `title` if needed for UX.
 - **RLS**: PostgreSQL RLS enabled on `fact`; policies so that:
   - SELECT/INSERT/UPDATE/DELETE only allow rows where `userId` matches the authenticated **app user** id (e.g. `current_setting('app.user_id')` or equivalent).

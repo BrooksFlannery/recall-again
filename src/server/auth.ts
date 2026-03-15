@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { db } from "./db";
+import { db, schemaApp } from "./db";
 
 /**
  * Better Auth config. Used by the app (when routes are mounted in Patch 2a)
@@ -19,6 +19,15 @@ export const auth = betterAuth({
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+    },
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          await db.insert(schemaApp.appUser).values({ authUserId: user.id });
+        },
+      },
     },
   },
 });
