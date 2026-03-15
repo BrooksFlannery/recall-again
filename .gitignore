@@ -21,3 +21,6 @@ next-env.d.ts
 *.log
 .idea/
 .vscode/
+
+# Agent prompts
+AGENT_PROMPT.md
