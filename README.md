@@ -146,4 +146,5 @@ See [docs/testing.md](docs/testing.md) for conventions and setup details.
 
 - [docs/betterauth/](docs/betterauth/) — Better Auth integration notes
 - [docs/effect/](docs/effect/) — Effect TS patterns used in this project
+- [docs/ids.md](docs/ids.md) — Prefixed ID convention (e.g. `user_`, `fact_`, `quiz_`)
 - [docs/testing.md](docs/testing.md) — Testing conventions and Bun test runner setup
