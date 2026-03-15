@@ -1,5 +1,5 @@
 {
-  "id": "73ce4514-9d9c-4973-8879-53284650635a",
+  "id": "7a8d26e7-4f8e-4d60-8c21-688bd9c7cc78",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -365,18 +365,12 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
+          "type": "serial",
           "primaryKey": true,
           "notNull": true
         },
-        "message": {
-          "name": "message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
+        "pinged_at": {
+          "name": "pinged_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
