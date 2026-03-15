@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "bun test",
-    "db:up": "docker compose up -d",
+    "db:up": "docker compose up -d && drizzle-kit migrate",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",

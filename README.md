@@ -37,15 +37,9 @@ Edit `.env` — see [Environment Variables](#environment-variables) below.
 bun run db:up
 ```
 
-This starts a standard PostgreSQL container on `localhost:5432`.
+This starts a standard PostgreSQL container on `localhost:5432` and immediately runs any pending migrations.
 
-### 4. Run migrations
-
-```bash
-bun run db:migrate
-```
-
-### 5. Start the dev server
+### 4. Start the dev server
 
 ```bash
 bun run dev
@@ -106,16 +100,10 @@ The public base URL of your app.
 
 ### Local development
 
-A `docker-compose.yml` is included. Start Postgres with:
+A `docker-compose.yml` is included. Start Postgres and apply migrations with:
 
 ```bash
 bun run db:up
-```
-
-Then run migrations:
-
-```bash
-bun run db:migrate
 ```
 
 ### Production (Neon)
