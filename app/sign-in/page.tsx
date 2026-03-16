@@ -16,7 +16,7 @@ export default function SignInPage() {
   async function handleGoogleSignIn() {
     await authClient.signIn.social({
       provider: "google",
-      callbackURL: "/",
+      callbackURL: "/dashboard",
     });
   }
 
@@ -27,7 +27,7 @@ export default function SignInPage() {
     const { data, error: err } = await authClient.signIn.email({
       email,
       password,
-      callbackURL: "/",
+      callbackURL: "/dashboard",
     });
     setIsLoading(false);
     if (err) {
@@ -35,7 +35,7 @@ export default function SignInPage() {
       return;
     }
     if (data) {
-      router.push("/");
+      router.push("/dashboard");
       router.refresh();
     }
   }

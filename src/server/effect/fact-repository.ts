@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { Db } from "@/server/effect/db";
 import { schemaApp } from "@/server/db";
 import type { FactSelect } from "@/server/schemas/fact";
@@ -34,7 +34,10 @@ export const FactRepositoryLive = Layer.effect(
 
       list: (): Effect.Effect<FactSelect[]> =>
         Effect.tryPromise(() =>
-          db.select().from(schemaApp.fact),
+          db
+            .select()
+            .from(schemaApp.fact)
+            .orderBy(desc(schemaApp.fact.createdAt)),
         ).pipe(Effect.orDie),
 
       getById: (id: string): Effect.Effect<FactSelect | null> =>
