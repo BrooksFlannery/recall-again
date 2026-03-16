@@ -22,6 +22,7 @@ const protectedMiddleware = t.middleware(({ ctx, next }) => {
   const appUser = ctx.appUser;
 
   return db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL ROLE recall_app`);
     await tx.execute(
       sql`SELECT set_config('app.user_id', ${appUser.id}, true)`,
     );
