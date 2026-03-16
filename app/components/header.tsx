@@ -29,6 +29,16 @@ export function Header() {
           <span style={{ color: "#6b7280", fontSize: "0.875rem" }}>…</span>
         ) : session?.user ? (
           <>
+            <Link
+              href="/dashboard"
+              style={{
+                fontSize: "0.875rem",
+                textDecoration: "none",
+                color: "inherit",
+              }}
+            >
+              Dashboard
+            </Link>
             <span style={{ fontSize: "0.875rem" }}>
               {session.user.name ?? session.user.email}
             </span>

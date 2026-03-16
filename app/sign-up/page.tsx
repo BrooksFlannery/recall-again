@@ -17,7 +17,7 @@ export default function SignUpPage() {
   async function handleGoogleSignUp() {
     await authClient.signIn.social({
       provider: "google",
-      callbackURL: "/",
+      callbackURL: "/dashboard",
     });
   }
 
@@ -29,7 +29,7 @@ export default function SignUpPage() {
       name,
       email,
       password,
-      callbackURL: "/",
+      callbackURL: "/dashboard",
     });
     setIsLoading(false);
     if (err) {
@@ -37,7 +37,7 @@ export default function SignUpPage() {
       return;
     }
     if (data) {
-      router.push("/");
+      router.push("/dashboard");
       router.refresh();
     }
   }
