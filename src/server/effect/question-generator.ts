@@ -2,8 +2,13 @@ import { Context, Effect, Layer } from "effect";
 import OpenAI from "openai";
 import { z } from "zod";
 
+export interface GeneratedQuestion {
+  text: string;
+  answer: string;
+}
+
 export interface IQuestionGenerator {
-  generateQuestionFromFact: (content: string) => Effect.Effect<string>;
+  generateQuestionFromFact: (content: string) => Effect.Effect<GeneratedQuestion>;
 }
 
 export class QuestionGenerator extends Context.Tag("QuestionGenerator")<
@@ -13,12 +18,13 @@ export class QuestionGenerator extends Context.Tag("QuestionGenerator")<
 
 const QuestionResponseSchema = z.object({
   text: z.string(),
+  answer: z.string(),
 });
 
 export const QuestionGeneratorLive = Layer.succeed(
   QuestionGenerator,
   {
-    generateQuestionFromFact: (content: string): Effect.Effect<string> =>
+    generateQuestionFromFact: (content: string): Effect.Effect<GeneratedQuestion> =>
       Effect.tryPromise(async () => {
         const apiKey = process.env.OPENAI_API_KEY;
         const model = process.env.OPENAI_QUESTION_MODEL ?? "gpt-4o-mini";
@@ -31,7 +37,7 @@ export const QuestionGeneratorLive = Layer.succeed(
             {
               role: "system",
               content:
-                'You are a quiz question generator. Given a fact, generate one quiz question that tests knowledge of that fact. Respond with valid JSON in this exact format: { "text": "your question here" }',
+                'You are a quiz question generator. Given a fact, generate one quiz question that tests knowledge of that fact, along with a canonical answer. Respond with valid JSON in this exact format: { "text": "your question here", "answer": "canonical answer here" }',
             },
             {
               role: "user",
@@ -42,8 +48,7 @@ export const QuestionGeneratorLive = Layer.succeed(
         });
 
         const raw = response.choices[0]?.message?.content ?? "{}";
-        const parsed = QuestionResponseSchema.parse(JSON.parse(raw));
-        return parsed.text;
+        return QuestionResponseSchema.parse(JSON.parse(raw));
       }).pipe(Effect.orDie),
   },
 );
