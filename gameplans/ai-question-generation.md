@@ -5,15 +5,15 @@
 - **Workstream**: Recall — Facts & Quizzes
 - **Milestone**: 2 (ai-question-generation)
 - **Prior milestones**: M1 (facts-crud-rls) — app_user, fact table, RLS, fact CRUD, protectedProcedure
-- **Unlocks**: M3c (quiz-taking) — quizzes need questions from facts
+- **Unlocks**: M3c (quiz-taking) — quizzes need flashcards from facts
 
 ## Problem Statement
 
-Facts exist and are editable per user (M1), but there is no way to turn a fact into quiz questions. The product needs AI-generated questions from fact content so that later milestones can build daily quizzes from "facts + questions." Without a defined schema, API, and one implemented AI path, we cannot safely build quiz flows.
+Facts exist and are editable per user (M1), but there is no way to turn a fact into quiz material. The product needs AI-generated flashcards (a question + canonical answer pair) from fact content so that later milestones can build daily quizzes from "facts + flashcards." Without a defined schema, API, and one implemented AI path, we cannot safely build quiz flows.
 
 ## Solution Summary
 
-Add a `question` table linked to `fact` (ownership via fact → app_user; no RLS on question — access only through fact ownership checks). Implement one AI path: call OpenAI (e.g. gpt-4o-mini) with a prompt that takes fact content and returns structured questions; validate input/output with Zod and handle errors. Expose a tRPC procedure to generate one question for a fact (e.g. "generate question for this fact id") using protectedProcedure; enforce that the caller owns the fact. Semantics: **append** — each call creates a new question row for that fact. We keep history (one fact can have many question rows over time). When we later build a quiz (out of scope for M2), we create one question per fact and serve that; we don’t need the quiz to reference old questions—those are just historical record (and in a future version we might use them to avoid duplicate questions; for now we rely on AI non-determinism). Prompt: only fact content is sent to the model (workstream DoD: no PII/secrets in prompts). Optional env-based rate or guardrails. Effect service for AI + repository for questions; tests with stubs then implementation.
+Add a `flashcard` table linked to `fact` (ownership via fact → app_user; no RLS on flashcard — access only through fact ownership checks). Implement one AI path: call OpenAI (e.g. gpt-4o-mini) with a prompt that takes fact content and returns a structured flashcard with a `question` and `canonical_answer`; validate input/output with Zod and handle errors. Expose a tRPC procedure to generate one flashcard for a fact (e.g. "generate flashcard for this fact id") using protectedProcedure; enforce that the caller owns the fact. Semantics: **append** — each call creates a new flashcard row for that fact. We keep history (one fact can have many flashcard rows over time). When we later build a quiz (out of scope for M2), we create one flashcard per fact and serve that; we don't need the quiz to reference old flashcards—those are just historical record (and in a future version we might use them to avoid duplicate questions; for now we rely on AI non-determinism). Prompt: only fact content is sent to the model (workstream DoD: no PII/secrets in prompts). Effect service for AI + repository for flashcards; tests with stubs then implementation.
 
 ## Mergability Strategy
 
@@ -23,91 +23,91 @@ Add a `question` table linked to `fact` (ownership via fact → app_user; no RLS
 
 ### Patch Ordering Strategy
 
-- **Early ([INFRA])**: Migration + Drizzle schema for `question`; question schemas (Zod); QuestionRepository interface + live implementation (stub or minimal); test stubs with `.skip` for repository and generate procedure.
-- **Middle ([INFRA] / [GATED])**: AI service (OpenAI client, prompt, Zod parse for response); env var for API key and optional model name; wire "generate questions" to AI + repository behind procedure. Could gate behind `ENABLE_QUESTION_GENERATION` if desired; this gameplan keeps it simple and does not gate.
-- **Late ([BEHAVIOR])**: Implement generate procedure (fact ownership check, call AI, append one new question for fact, return it); unskip tests.
+- **Early ([INFRA])**: Migration + Drizzle schema for `flashcard`; flashcard schemas (Zod); FlashcardRepository interface + live implementation (stub or minimal); test stubs with `.skip` for repository and generate procedure.
+- **Middle ([INFRA] / [GATED])**: AI service (OpenAI client, prompt, Zod parse for response); env var for API key and optional model name; wire "generate flashcard" to AI + repository behind procedure. Could gate behind `ENABLE_FLASHCARD_GENERATION` if desired; this gameplan keeps it simple and does not gate.
+- **Late ([BEHAVIOR])**: Implement generate procedure (fact ownership check, call AI, append one new flashcard for fact, return it); unskip tests.
 
 ## Current State Analysis
 
 | Area | Current state |
 |------|----------------|
-| **Schema (app)** | `src/server/db/schema-app.ts`: `app_user`, `fact`, `factRelations`. No `question` table. |
+| **Schema (app)** | `src/server/db/schema-app.ts`: `app_user`, `fact`, `factRelations`. No `flashcard` table. |
 | **Fact router** | `src/server/trpc/routers/fact.ts`: create, list, getById, update, delete. All use protectedProcedure + requestDbLayer + FactRepository. |
-| **Effect** | `FactRepository` in `src/server/effect/fact-repository.ts`; `Db` tag and request-scoped layer in trpc. No AI or question services. |
+| **Effect** | `FactRepository` in `src/server/effect/fact-repository.ts`; `Db` tag and request-scoped layer in trpc. No AI or flashcard services. |
 | **Auth / RLS** | protectedProcedure sets `app.user_id`; RLS on `fact`. No RLS on other app tables. |
-| **IDs** | Prefixed IDs per `docs/ids.md`: `user_`, `fact_`; question prefix `ques_`. |
+| **IDs** | Prefixed IDs per `docs/ids.md`: `user_`, `fact_`; flashcard prefix `fc_`. |
 | **Dependencies** | No OpenAI or other LLM SDK in package.json. |
 | **Env** | `.env.example`: DATABASE_URL, BETTER_AUTH_*, NEXT_PUBLIC_APP_URL, GOOGLE_*. No OPENAI_API_KEY. |
 
 ## Required Changes
 
-### 1. Question table (Drizzle + migration)
+### 1. Flashcard table (Drizzle + migration)
 
 - **File**: `src/server/db/schema-app.ts`
-- **Table**: `question` with:
-  - `id` text PK, default `'ques_' || gen_random_uuid()::text`
+- **Table**: `flashcard` with:
+  - `id` text PK, default `'fc_' || gen_random_uuid()::text`
   - `factId` text NOT NULL, FK to `fact.id` (onDelete: cascade)
-  - `text` text NOT NULL (question text)
+  - `question` text NOT NULL
+  - `canonicalAnswer` text NOT NULL (column: `canonical_answer`)
   - `createdAt` timestamptz default now
-  - Optional: `type` text (e.g. 'freeform', 'multiple_choice') for future use; or a JSONB `metadata` column
-- **Relations**: Add `questions` to `factRelations`; add `fact` to question relations.
-- **Migration**: New migration under `drizzle/` that creates `question`. No RLS (access controlled by fact ownership in app).
+- **Relations**: Add `flashcards` to `factRelations`; add `fact` to flashcard relations.
+- **Migration**: Run `bun run db:generate` after schema change. No RLS (access controlled by fact ownership in app).
 
-### 2. Question schemas (Zod)
+### 2. Flashcard schemas (Zod)
 
-- **File**: `src/server/schemas/question.ts` (new)
-- **Exports**: `QuestionSelectSchema` (drizzle-zod from question table), `QuestionCreateInputSchema` (factId, text; for internal use), and a schema for AI response (single question: `{ text: string }`).
+- **File**: `src/server/schemas/flashcard.ts` (new)
+- **Exports**: `FlashcardSelectSchema` (drizzle-zod from flashcard table), type export, and AI response schema: `FlashcardGeneratedSchema = z.object({ question: z.string(), canonicalAnswer: z.string() })`.
 
-### 3. QuestionRepository (Effect service)
+### 3. FlashcardRepository (Effect service)
 
-- **File**: `src/server/effect/question-repository.ts` (new)
+- **File**: `src/server/effect/flashcard-repository.ts` (new)
 - **Interface**:
-  - `listByFactId(factId: string): Effect<QuestionSelect[], Error>`
-  - `create(factId: string, text: string): Effect<QuestionSelect, Error>` — insert one question, return the new row
-- **Implementation**: Uses `Db`; all queries run in request-scoped layer. Caller ensures fact is owned (procedure loads fact first under RLS). Append-only; old questions kept as history.
+  - `listByFactId(factId: string): Effect<FlashcardSelect[], Error>`
+  - `create(factId: string, question: string, canonicalAnswer: string): Effect<FlashcardSelect, Error>` — insert one flashcard, return the new row
+- **Implementation**: Uses `Db`; all queries run in request-scoped layer. Caller ensures fact is owned (procedure loads fact first under RLS). Append-only; old flashcards kept as history.
 
 ### 4. Fact ownership check
 
-- **Location**: In the "generate questions" procedure: load fact by id via FactRepository (with requestDbLayer so RLS applies). If null, return NOT_FOUND. No need to pass userId — RLS already restricts to current app user.
+- **Location**: In the "generate flashcard" procedure: load fact by id via FactRepository (with requestDbLayer so RLS applies). If null, return NOT_FOUND. No need to pass userId — RLS already restricts to current app user.
 
 ### 5. AI integration (OpenAI)
 
-- **File**: `src/server/effect/question-generator.ts` (new)
+- **File**: `src/server/effect/flashcard-generator.ts` (new)
 - **Signature**:
 
 ```ts
-// One call → one question. Input: fact content. Output: single question text.
-generateQuestionFromFact(content: string): Effect.Effect<string>
+// One call → one flashcard. Input: fact content. Output: { question, canonicalAnswer }.
+generateFlashcardFromFact(content: string): Effect.Effect<{ question: string; canonicalAnswer: string }>
 ```
 
-- **Implementation**: Call OpenAI API (chat completions) with a system + user prompt; request a single question as JSON `{ "text": string }`; parse with Zod. Use env `OPENAI_API_KEY`; optional `OPENAI_QUESTION_MODEL` (default `gpt-4o-mini`). Send only fact content to the model (no user identifiers—workstream DoD). **Serverless** = request in → call OpenAI → response back → persist and return; no queues or background jobs.
-- **Effect**: `QuestionGenerator` tag with `QuestionGeneratorLive` using `openai` package. Inject API key from env at layer construction.
+- **Implementation**: Call OpenAI API (chat completions) with a system + user prompt; request a single flashcard as JSON `{ "question": string, "canonicalAnswer": string }`; parse with Zod (`FlashcardGeneratedSchema`). Use env `OPENAI_API_KEY`; optional `OPENAI_FLASHCARD_MODEL` (default `gpt-4o-mini`). Send only fact content to the model (no user identifiers—workstream DoD). **Serverless** = request in → call OpenAI → response back → persist and return; no queues or background jobs.
+- **Effect**: `FlashcardGenerator` tag with `FlashcardGeneratorLive` using `openai` package. Inject API key from env at layer construction.
 
-### 6. tRPC procedure: generateQuestion (singular)
+### 6. tRPC procedure: generateFlashcard (singular)
 
 - **Router**: Add to `fact` router.
-- **Procedure**: `fact.generateQuestion` — `protectedProcedure`, input `z.object({ factId: z.string() })`, output `QuestionSelectSchema`.
-- **Steps**: (1) Get fact by id via FactRepository (RLS ensures ownership). (2) If no fact, throw NOT_FOUND. (3) Call QuestionGenerator.generateQuestionFromFact(fact.content) → one question text. (4) QuestionRepository.create(factId, text). (5) Return the new question row.
-- **Semantics**: Append. Each call creates one new question for that fact; we keep history. When building a quiz later, we use one question per fact (e.g. the one we create at quiz time); old questions are historical record only.
+- **Procedure**: `fact.generateFlashcard` — `protectedProcedure`, input `z.object({ factId: z.string() })`, output `FlashcardSelectSchema`.
+- **Steps**: (1) Get fact by id via FactRepository (RLS ensures ownership). (2) If no fact, throw NOT_FOUND. (3) Call FlashcardGenerator.generateFlashcardFromFact(fact.content) → `{ question, canonicalAnswer }`. (4) FlashcardRepository.create(factId, question, canonicalAnswer). (5) Return the new flashcard row.
+- **Semantics**: Append. Each call creates one new flashcard for that fact; we keep history. When building a quiz later, we use one flashcard per fact (e.g. the one we create at quiz time); old flashcards are historical record only.
 
-### 7. Optional: list questions for a fact
+### 7. Optional: list flashcards for a fact
 
-- **Procedure**: `fact.listQuestions` — input `{ factId }`, output array of QuestionSelect. Load fact first (RLS); if null, NOT_FOUND; else QuestionRepository.listByFactId(factId). Enables UI to show questions after generate.
+- **Procedure**: `fact.listFlashcards` — input `{ factId }`, output array of FlashcardSelect. Load fact first (RLS); if null, NOT_FOUND; else FlashcardRepository.listByFactId(factId). Enables UI to show flashcards after generate.
 
 ### 8. Env and dependencies
 
 - **package.json**: Add `openai` (official SDK).
-- **.env.example**: Add `OPENAI_API_KEY=`, optional `OPENAI_QUESTION_MODEL=gpt-4o-mini`.
+- **.env.example**: Add `OPENAI_API_KEY=`, optional `OPENAI_FLASHCARD_MODEL=gpt-4o-mini`.
 - **Cost/safety**: Only fact content in the prompt (workstream DoD: no PII/secrets). Optional: rate limit in a later iteration (not required for M2 DoD).
 
 ## Acceptance Criteria
 
-- [ ] `question` table exists with id (prefixed `ques_`), factId (FK to fact), text, createdAt (and optional type/metadata).
-- [ ] One implemented AI path: fact content → structured questions via OpenAI; input/output validated (Zod); errors handled.
-- [ ] tRPC procedure to generate one question for a fact id; uses protectedProcedure; only fact owner can trigger; append semantics (new question row, existing questions unchanged).
-- [ ] Fact ownership enforced by loading fact under requestDbLayer (RLS); no explicit userId in question table; access to questions only through fact.
+- [ ] `flashcard` table exists with id (prefixed `fc_`), factId (FK to fact), question, canonicalAnswer, createdAt.
+- [ ] One implemented AI path: fact content → structured flashcard (question + canonicalAnswer) via OpenAI; input/output validated (Zod); errors handled.
+- [ ] tRPC procedure to generate one flashcard for a fact id; uses protectedProcedure; only fact owner can trigger; append semantics (new flashcard row, existing flashcards unchanged).
+- [ ] Fact ownership enforced by loading fact under requestDbLayer (RLS); no explicit userId in flashcard table; access to flashcards only through fact.
 - [ ] Only fact content sent to the model (no user identifiers); OPENAI_API_KEY in env; optional model env var.
-- [ ] Migrations and docs/ids.md convention followed; QuestionRepository and generator as Effect services.
+- [ ] Migrations generated via `bun run db:generate`; docs/ids.md convention followed; FlashcardRepository and generator as Effect services.
 
 ## Open Questions
 
@@ -115,74 +115,75 @@ None for M2; see Explicit Opinions for decisions.
 
 ## Explicit Opinions
 
-1. **No RLS on question**: Ownership inferred via fact; all access goes through "get fact (RLS) then questions for that fact." Simpler than duplicating user id on question or adding RLS.
-2. **Append semantics; history only**: Each generate call creates one new question for that fact. We never replace or delete. Over time a fact can have many question rows (history). When we build a quiz (later milestones), we create one question per fact and put that in the quiz; the quiz doesn’t need to reference old questions—they’re for history (and maybe future dedup; for now we rely on AI non-determinism).
-3. **One call = one question**: One tRPC call → one OpenAI request → one question returned → one new row. Simple and predictable. If we later want "generate N questions" we can add a separate procedure.
+1. **No RLS on flashcard**: Ownership inferred via fact; all access goes through "get fact (RLS) then flashcards for that fact." Simpler than duplicating user id on flashcard or adding RLS.
+2. **Append semantics; history only**: Each generate call creates one new flashcard for that fact. We never replace or delete. Over time a fact can have many flashcard rows (history). When we build a quiz (later milestones), we create one flashcard per fact and put that in the quiz; the quiz doesn't need to reference old flashcards—they're for history (and maybe future dedup; for now we rely on AI non-determinism).
+3. **One call = one flashcard**: One tRPC call → one OpenAI request → one flashcard returned → one new row. Simple and predictable. If we later want "generate N flashcards" we can add a separate procedure.
 4. **Serverless**: Generation runs inside the tRPC mutation: receive request → call OpenAI API → get response → insert row → return. No queues, workers, or polling. Just an API call and response.
 5. **OpenAI + gpt-4o-mini**: Good cost/latency; switchable via env. No background job for M2.
 6. **Effect for AI and repo**: Same pattern as FactRepository; generator as a Context.Tag so tests can swap implementation.
-7. **Procedure on fact router**: `fact.generateQuestion` and `fact.listQuestions` keep fact as the aggregate entry point.
+7. **Procedure on fact router**: `fact.generateFlashcard` and `fact.listFlashcards` keep fact as the aggregate entry point.
+8. **question + canonicalAnswer in same AI call**: One OpenAI call returns both fields as structured JSON. The flashcard is the atomic unit — never split across calls.
 
 ## Patches
 
-### Patch 1 [INFRA]: Question table and migration
+### Patch 1 [INFRA]: Flashcard table and migration
 
 **Files to modify:**
 - `src/server/db/schema-app.ts`
 
 **Changes:**
-1. Add `question` table: id (text PK, default `'ques_' || gen_random_uuid()::text`), factId (FK to fact.id, onDelete cascade), text (text NOT NULL), createdAt (timestamptz default now).
-2. Add `questionRelations` and add `questions: many(question)` to `factRelations`.
-3. New migration under `drizzle/` for creating `question` table.
+1. Add `flashcard` table: id (text PK, default `'fc_' || gen_random_uuid()::text`), factId (FK to fact.id, onDelete cascade), question (text NOT NULL), canonicalAnswer (text NOT NULL), createdAt (timestamptz default now).
+2. Add `flashcardRelations` and add `flashcards: many(flashcard)` to `factRelations`.
+3. Run `bun run db:generate` to produce the migration. Never hand-write migration SQL or edit `_journal.json`.
 
-### Patch 2 [INFRA]: Question schemas and repository interface + stub
+### Patch 2 [INFRA]: Flashcard schemas and repository
 
 **Files to create/modify:**
-- `src/server/schemas/question.ts` (new): QuestionSelectSchema (createSelectSchema), type export, and AI response schema for one question: `QuestionGeneratedSchema = z.object({ text: z.string() })`.
-- `src/server/effect/question-repository.ts` (new): QuestionRepository tag, interface (listByFactId, create), QuestionRepositoryLive with real implementation (listByFactId select; create = single insert, return row).
+- `src/server/schemas/flashcard.ts` (new): `FlashcardSelectSchema` (createSelectSchema), type export, and `FlashcardGeneratedSchema = z.object({ question: z.string(), canonicalAnswer: z.string() })`.
+- `src/server/effect/flashcard-repository.ts` (new): `FlashcardRepository` tag, interface (`listByFactId`, `create`), `FlashcardRepositoryLive` with real implementation.
 
 **Changes:**
 1. Schemas for DB row and for AI JSON output.
-2. Repository full implementation (no stub) so Patch 3 can focus on AI + procedure.
+2. Repository full implementation so Patch 3 can focus on AI + procedure.
 
-### Patch 3 [INFRA]: OpenAI dependency, env, and question generator service
+### Patch 3 [INFRA]: OpenAI dependency, env, and flashcard generator service
 
 **Files to create/modify:**
 - `package.json`: add `openai`.
-- `.env.example`: add `OPENAI_API_KEY=`, `OPENAI_QUESTION_MODEL=gpt-4o-mini`.
-- `src/server/effect/question-generator.ts` (new): QuestionGenerator tag, `generateQuestionFromFact(content: string): Effect<string>`, Live layer that reads env and calls OpenAI; prompt that requests one question as JSON `{ "text": "..." }`; parse with Zod; return single string.
+- `.env.example`: add `OPENAI_API_KEY=`, `OPENAI_FLASHCARD_MODEL=gpt-4o-mini`.
+- `src/server/effect/flashcard-generator.ts` (new): `FlashcardGenerator` tag, `generateFlashcardFromFact(content: string): Effect<{ question: string; canonicalAnswer: string }>`, Live layer that reads env and calls OpenAI; prompt requests one flashcard as JSON `{ "question": "...", "canonicalAnswer": "..." }`; parse with `FlashcardGeneratedSchema`; return the object.
 
 **Changes:**
 1. Install openai; document env vars.
 2. Generator service with explicit prompt and structured output parsing; only fact content in prompt.
 
-### Patch 4 [INFRA]: Test stubs for generate and listQuestions
+### Patch 4 [INFRA]: Test stubs for generateFlashcard and listFlashcards
 
 **Files to create/modify:**
-- `src/server/trpc/routers/fact.test.ts` (extend) or new `src/server/effect/question-generator.test.ts` / `question-repository` tests as needed.
+- `src/server/trpc/routers/fact.test.ts` (extend) or new test files as needed.
 
 **Changes:**
-1. Add tests with `.skip` and `// PENDING: Patch 5`: fact.generateQuestion returns the new question for owned fact; fact.generateQuestion returns NOT_FOUND for missing fact; fact.generateQuestion rejects unowned fact (via RLS); fact.listQuestions returns questions for owned fact.
+1. Add tests with `.skip` and `// PENDING: Patch 5`: fact.generateFlashcard returns the new flashcard for owned fact; fact.generateFlashcard returns NOT_FOUND for missing fact; fact.generateFlashcard rejects unowned fact (via RLS); fact.listFlashcards returns flashcards for owned fact.
 2. Test Map below references these.
 
-### Patch 5 [BEHAVIOR]: fact.generateQuestion and fact.listQuestions procedures
+### Patch 5 [BEHAVIOR]: fact.generateFlashcard and fact.listFlashcards procedures
 
 **Files to modify:**
 - `src/server/trpc/routers/fact.ts`
 
 **Changes:**
-1. Add `generateQuestion`: protectedProcedure, input `{ factId }`, get fact by id (FactRepository.getById), if null throw NOT_FOUND; yield QuestionGenerator.generateQuestionFromFact(fact.content); yield QuestionRepository.create(factId, text); return the new question. Provide FactRepository + QuestionRepository + QuestionGenerator layers with ctx.requestDbLayer.
-2. Add `listQuestions`: protectedProcedure, input `{ factId }`, get fact by id; if null throw NOT_FOUND; return QuestionRepository.listByFactId(factId).
+1. Add `generateFlashcard`: protectedProcedure, input `{ factId }`, get fact by id (FactRepository.getById), if null throw NOT_FOUND; yield FlashcardGenerator.generateFlashcardFromFact(fact.content) → `{ question, canonicalAnswer }`; yield FlashcardRepository.create(factId, question, canonicalAnswer); return the new flashcard. Provide FactRepository + FlashcardRepository + FlashcardGenerator layers with ctx.requestDbLayer.
+2. Add `listFlashcards`: protectedProcedure, input `{ factId }`, get fact by id; if null throw NOT_FOUND; return FlashcardRepository.listByFactId(factId).
 3. Unskip and implement tests from Patch 4.
 
 ## Test Map
 
 | Test Name | File | Stub Patch | Impl Patch |
 |-----------|------|------------|------------|
-| fact.generateQuestion > returns new question for owned fact | src/server/trpc/routers/fact.test.ts | 4 | 5 |
-| fact.generateQuestion > returns NOT_FOUND for missing fact | src/server/trpc/routers/fact.test.ts | 4 | 5 |
-| fact.generateQuestion > returns NOT_FOUND for unowned fact (RLS) | src/server/trpc/routers/fact.test.ts | 4 | 5 |
-| fact.listQuestions > returns questions for owned fact | src/server/trpc/routers/fact.test.ts | 4 | 5 |
+| fact.generateFlashcard > returns new flashcard for owned fact | src/server/trpc/routers/fact.test.ts | 4 | 5 |
+| fact.generateFlashcard > returns NOT_FOUND for missing fact | src/server/trpc/routers/fact.test.ts | 4 | 5 |
+| fact.generateFlashcard > returns NOT_FOUND for unowned fact (RLS) | src/server/trpc/routers/fact.test.ts | 4 | 5 |
+| fact.listFlashcards > returns flashcards for owned fact | src/server/trpc/routers/fact.test.ts | 4 | 5 |
 
 ## Dependency Graph
 
