@@ -41,6 +41,12 @@ bun run db:generate   # generates SQL in drizzle/
 bun run db:migrate    # applies it to the database
 ```
 
+**Never manually write migration SQL files or edit `drizzle/meta/_journal.json`.** Always use `bun run db:generate` — it diffs the schema against the last snapshot and produces a correct migration file and updated snapshot. Hand-editing bypasses this diffing and produces inconsistent snapshot state. A dummy `DATABASE_URL` is sufficient for generation (no live DB needed):
+
+```bash
+DATABASE_URL=postgres://localhost/dummy bun run db:generate
+```
+
 ---
 
 ## Deriving Zod schemas with `createTableSchemas`
