@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { z } from "zod";
 
 export interface GeneratedQuestion {
-  text: string;
+  question: string;
   answer: string;
 }
 
@@ -17,7 +17,7 @@ export class QuestionGenerator extends Context.Tag("QuestionGenerator")<
 >() {}
 
 const QuestionResponseSchema = z.object({
-  text: z.string(),
+  question: z.string(),
   answer: z.string(),
 });
 
@@ -37,7 +37,7 @@ export const QuestionGeneratorLive = Layer.succeed(
             {
               role: "system",
               content:
-                'You are a quiz question generator. Given a fact, generate one quiz question that tests knowledge of that fact, along with a canonical answer. Respond with valid JSON in this exact format: { "text": "your question here", "answer": "canonical answer here" }',
+                'You are a quiz question generator. Given a fact, generate one quiz question that tests knowledge of that fact, along with a canonical answer. Respond with valid JSON in this exact format: { "question": "your question here", "answer": "canonical answer here" }',
             },
             {
               role: "user",
