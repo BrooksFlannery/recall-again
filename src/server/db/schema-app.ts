@@ -57,26 +57,27 @@ export const factRelations = relations(fact, ({ one, many }) => ({
     fields: [fact.userId],
     references: [appUser.id],
   }),
-  questions: many(question),
+  flashcards: many(flashcard),
 }));
 
-/** A generated question derived from a fact. Append-only; no RLS — access via fact ownership. */
-export const question = pgTable("question", {
+/** An AI-generated flashcard (question + canonical answer) derived from a fact. Append-only; no RLS — access via fact ownership. */
+export const flashcard = pgTable("flashcard", {
   id: text("id")
     .primaryKey()
-    .default(sql`'ques_' || gen_random_uuid()::text`),
+    .default(sql`'fc_' || gen_random_uuid()::text`),
   factId: text("fact_id")
     .notNull()
     .references(() => fact.id, { onDelete: "cascade" }),
-  text: text("text").notNull(),
+  question: text("question").notNull(),
+  canonicalAnswer: text("canonical_answer").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
 });
 
-export const questionRelations = relations(question, ({ one }) => ({
+export const flashcardRelations = relations(flashcard, ({ one }) => ({
   fact: one(fact, {
-    fields: [question.factId],
+    fields: [flashcard.factId],
     references: [fact.id],
   }),
 }));
