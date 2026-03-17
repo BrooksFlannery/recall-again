@@ -52,9 +52,31 @@ export const fact = pgTable("fact", {
     .notNull(),
 });
 
-export const factRelations = relations(fact, ({ one }) => ({
+export const factRelations = relations(fact, ({ one, many }) => ({
   user: one(appUser, {
     fields: [fact.userId],
     references: [appUser.id],
+  }),
+  questions: many(question),
+}));
+
+/** A generated question derived from a fact. Append-only; no RLS — access via fact ownership. */
+export const question = pgTable("question", {
+  id: text("id")
+    .primaryKey()
+    .default(sql`'ques_' || gen_random_uuid()::text`),
+  factId: text("fact_id")
+    .notNull()
+    .references(() => fact.id, { onDelete: "cascade" }),
+  text: text("text").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+export const questionRelations = relations(question, ({ one }) => ({
+  fact: one(fact, {
+    fields: [question.factId],
+    references: [fact.id],
   }),
 }));

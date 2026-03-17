@@ -43,6 +43,13 @@
       "when": 1773618600000,
       "tag": "0005_app_role",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1742083200000,
+      "tag": "0006_question_table",
+      "breakpoints": true
     }
   ]
 }
