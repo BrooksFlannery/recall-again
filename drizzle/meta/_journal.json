@@ -57,6 +57,13 @@
       "when": 1742342400000,
       "tag": "0008_recall_app_flashcard_grant",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1773889007627,
+      "tag": "0008_tranquil_jane_foster",
+      "breakpoints": true
     }
   ]
 }
