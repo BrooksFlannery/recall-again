@@ -24,3 +24,5 @@ next-env.d.ts
 
 # Agent prompts
 AGENT_PROMPT.md
+.vercel
+.env*.local

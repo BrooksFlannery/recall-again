@@ -27,7 +27,14 @@ export const QuestionGeneratorLive = Layer.succeed(
     generateQuestionFromFact: (content: string): Effect.Effect<GeneratedQuestion> =>
       Effect.tryPromise(async () => {
         const apiKey = process.env.OPENAI_API_KEY;
-        const model = process.env.OPENAI_QUESTION_MODEL ?? "gpt-4o-mini";
+        if (!apiKey) {
+          throw new Error("Missing env var OPENAI_API_KEY");
+        }
+
+        const model = process.env.OPENAI_QUESTION_MODEL;
+        if (!model) {
+          throw new Error("Missing env var OPENAI_QUESTION_MODEL");
+        }
 
         const client = new OpenAI({ apiKey });
 
