@@ -1,5 +1,5 @@
 import { relations, sql } from "drizzle-orm";
-import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 import { user } from "./schema";
 
 /** Append-only ping log. Each row records one ping. */
@@ -32,6 +32,7 @@ export const appUserRelations = relations(appUser, ({ one, many }) => ({
     references: [user.id],
   }),
   facts: many(fact),
+  quizzes: many(quiz),
 }));
 
 /** A single fact belonging to an app user. */
@@ -58,6 +59,7 @@ export const factRelations = relations(fact, ({ one, many }) => ({
     references: [appUser.id],
   }),
   flashcards: many(flashcard),
+  quizItems: many(quizItem),
 }));
 
 /** An AI-generated flashcard (question + canonical answer) derived from a fact. Append-only; no RLS — access via fact ownership. */
@@ -78,6 +80,71 @@ export const flashcard = pgTable("flashcard", {
 export const flashcardRelations = relations(flashcard, ({ one }) => ({
   fact: one(fact, {
     fields: [flashcard.factId],
+    references: [fact.id],
+  }),
+}));
+
+/** A quiz session belonging to an app user. */
+export const quiz = pgTable("quiz", {
+  id: text("id")
+    .primaryKey()
+    .default(sql`'quiz_' || gen_random_uuid()::text`),
+  userId: text("user_id")
+    .notNull()
+    .references(() => appUser.id, { onDelete: "cascade" }),
+  mode: text("mode").notNull().default("manual"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const quizRelations = relations(quiz, ({ one, many }) => ({
+  user: one(appUser, {
+    fields: [quiz.userId],
+    references: [appUser.id],
+  }),
+  items: many(quizItem),
+}));
+
+/** A single item within a quiz, referencing a fact. userId is denormalized for RLS. */
+export const quizItem = pgTable("quiz_item", {
+  id: text("id")
+    .primaryKey()
+    .default(sql`'qi_' || gen_random_uuid()::text`),
+  quizId: text("quiz_id")
+    .notNull()
+    .references(() => quiz.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => appUser.id, { onDelete: "cascade" }),
+  factId: text("fact_id")
+    .notNull()
+    .references(() => fact.id, { onDelete: "cascade" }),
+  position: integer("position").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const quizItemRelations = relations(quizItem, ({ one }) => ({
+  quiz: one(quiz, {
+    fields: [quizItem.quizId],
+    references: [quiz.id],
+  }),
+  user: one(appUser, {
+    fields: [quizItem.userId],
+    references: [appUser.id],
+  }),
+  fact: one(fact, {
+    fields: [quizItem.factId],
     references: [fact.id],
   }),
 }));
