@@ -1,4 +1,25 @@
-import { beforeAll, describe, test, expect } from "bun:test";
+import { beforeAll, describe, test, expect, mock } from "bun:test";
+
+mock.module("openai", () => ({
+  default: class MockOpenAI {
+    chat = {
+      completions: {
+        create: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  question: "What is the capital of France?",
+                  answer: "Paris",
+                }),
+              },
+            },
+          ],
+        }),
+      },
+    };
+  },
+}));
 import { eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { db, schema, schemaApp } from "@/server/db";
@@ -155,21 +176,71 @@ describe("fact (RLS)", () => {
 });
 
 describe("fact.generateQuestion", () => {
-  test.skip("returns new question for owned fact", async () => {
-    // PENDING: Patch 5
+  test("returns new question for owned fact", async () => {
+    const { authUserId, appUser } = await createTestUser("genq_owned");
+    try {
+      const caller = makeCaller(appUser.id);
+      const fact = await caller.fact.create({ content: "The capital of France is Paris." });
+
+      const question = await caller.fact.generateQuestion({ factId: fact.id });
+
+      expect(question.factId).toBe(fact.id);
+      expect(typeof question.question).toBe("string");
+      expect(typeof question.canonicalAnswer).toBe("string");
+      expect(question.id).toMatch(/^fc_/);
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
+    }
   });
 
-  test.skip("returns NOT_FOUND for missing fact", async () => {
-    // PENDING: Patch 5
+  test("returns NOT_FOUND for missing fact", async () => {
+    const { authUserId, appUser } = await createTestUser("genq_missing");
+    try {
+      const caller = makeCaller(appUser.id);
+
+      await expect(
+        caller.fact.generateQuestion({ factId: "fact_nonexistent" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
+    }
   });
 
-  test.skip("returns NOT_FOUND for unowned fact (RLS)", async () => {
-    // PENDING: Patch 5
+  test("returns NOT_FOUND for unowned fact (RLS)", async () => {
+    const { authUserId: authA, appUser: userA } = await createTestUser("genq_rls_a");
+    const { authUserId: authB, appUser: userB } = await createTestUser("genq_rls_b");
+    try {
+      const callerA = makeCaller(userA.id);
+      const callerB = makeCaller(userB.id);
+
+      const fact = await callerA.fact.create({ content: "User A's fact" });
+
+      await expect(
+        callerB.fact.generateQuestion({ factId: fact.id }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authA));
+      await db.delete(schema.user).where(eq(schema.user.id, authB));
+    }
   });
 });
 
 describe("fact.listQuestions", () => {
-  test.skip("returns questions for owned fact", async () => {
-    // PENDING: Patch 5
+  test("returns questions for owned fact", async () => {
+    const { authUserId, appUser } = await createTestUser("listq_owned");
+    try {
+      const caller = makeCaller(appUser.id);
+      const fact = await caller.fact.create({ content: "The speed of light is ~3×10⁸ m/s." });
+
+      await caller.fact.generateQuestion({ factId: fact.id });
+      await caller.fact.generateQuestion({ factId: fact.id });
+
+      const questions = await caller.fact.listQuestions({ factId: fact.id });
+
+      expect(questions.length).toBe(2);
+      expect(questions.every((q) => q.factId === fact.id)).toBe(true);
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
+    }
   });
 });
