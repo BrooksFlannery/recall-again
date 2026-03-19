@@ -228,7 +228,7 @@ export default function DashboardPage() {
     border: "none",
     outline: "none",
     fontSize: "0.875rem",
-    resize: "vertical",
+    resize: "none",
     minHeight: "4.5rem",
     background: "#fff",
   };
@@ -291,7 +291,7 @@ export default function DashboardPage() {
               outline: "none",
               borderRadius: "6px 6px 0 0",
               fontSize: "0.875rem",
-              resize: "vertical",
+              resize: "none",
               minHeight: "4.5rem",
             }}
           />
