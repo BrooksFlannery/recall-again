@@ -153,3 +153,23 @@ describe("fact (RLS)", () => {
     }
   });
 });
+
+describe("fact.generateQuestion", () => {
+  test.skip("returns new question for owned fact", async () => {
+    // PENDING: Patch 5
+  });
+
+  test.skip("returns NOT_FOUND for missing fact", async () => {
+    // PENDING: Patch 5
+  });
+
+  test.skip("returns NOT_FOUND for unowned fact (RLS)", async () => {
+    // PENDING: Patch 5
+  });
+});
+
+describe("fact.listQuestions", () => {
+  test.skip("returns questions for owned fact", async () => {
+    // PENDING: Patch 5
+  });
+});
