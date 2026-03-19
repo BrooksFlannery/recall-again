@@ -66,35 +66,48 @@ Users create and manage **facts** (things they want to remember). The system gen
 
 ---
 
-### Milestone 3a: quiz-data-model-and-scheduling
+### Milestone 3a: manual-quizzes (on-demand)
 
 **Definition of Done**:
 
-- **Scheduling model**: Per-fact (or per fact+user) state for “next review date” and “current step in Fibonacci sequence.” Schema chosen so that:
-  - Correct answer → advance to next Fibonacci step (e.g. 1→1→2→3→5→8… days from today).
-  - Wrong answer → reset to “next day” (and reset sequence step to start).
-- **Tables**: e.g. `fact_review_state` or equivalent: `userId` (FK to `app_user.id`), `factId`, `nextReviewAt`, `fibonacciStepIndex` (or equivalent), `updatedAt`. Optional: `quiz` (id e.g. `quiz_<uuid>`), `quiz_item` if you want to represent “a quiz” as an entity (e.g. daily quiz = one row with many items). All ids follow [prefixed ID convention](../docs/ids.md).
-- **Queries**: “Overdue facts for user” = facts where `nextReviewAt <= today` (or similar), scoped by app user. No cron yet; logic can be exercised via tRPC or script.
-- **Initial state**: When a fact (or fact+question) is first eligible for quizzing, it gets “due next day” and step 0 or 1 in the sequence.
+- **User-triggered**: User can trigger a manual quiz at any time (e.g. “Quiz me now”).
+- **Selection logic**: Manual quiz selects **N random facts** for the current user (N is configurable), without using or requiring any spaced-repetition “due” logic.
+- **No scheduling side-effects**: Submitting answers for manual quizzes does **not** change any “next scheduled review” state for facts (neither for correct nor incorrect answers).
+- **Tables**: Minimal quiz representation exists so the UI can render a quiz session:
+  - `quiz` (id e.g. `quiz_<uuid>`, `userId`, `mode` = `manual`, `createdAt`)
+  - `quiz_item` (id e.g. `qitm_<uuid>`, `quizId`, `factId` (and/or `questionId` if using M2), ordering, createdAt)
+  - Optional: store per-item response/result for basic UX (but do not apply spaced repetition updates in this milestone)
+  - All ids follow [prefixed ID convention](../docs/ids.md).
+- **API**: tRPC procedure to create a manual quiz for the current user:
+  - Input: `{ count: number }` (default configurable)
+  - Output: quiz + items (fact/question refs) suitable for rendering
+  - Uses protected procedure and relies on RLS for fact ownership.
 
-**Why this is a safe pause point**: Data model and scheduling rules are in place and testable. No cron or UI dependency.
+**Why this is a safe pause point**: Manual quizzes work end-to-end without introducing scheduling complexity. It’s a thin slice that validates quiz rendering and submission UX.
 
-**Unlocks**: M3b (daily quiz creation) and M3c (taking quizzes and recording results).
+**Unlocks**: M3b (scheduled quizzes + spaced repetition) and M3c (taking quizzes and recording results).
 
 ---
 
-### Milestone 3b: daily-quiz-cron
+### Milestone 3b: scheduled-quizzes (spaced repetition + creation)
 
 **Definition of Done**:
 
-- **Cron job**: Runs on a schedule (e.g. daily). For each **app user** (or in batches), finds facts that are due for review (using the scheduling model from M3a).
-- **Quiz creation**: Creates a “daily quiz” record (if using `quiz` table) and attaches items (e.g. one item per fact or per question) for overdue facts. Only includes facts/questions for that app user.
+- **Scheduling model**: Per-user-per-fact state for “next scheduled review date” and “current step in Fibonacci sequence.” Schema chosen so that:
+  - Correct answer → advance to next Fibonacci step (e.g. 1→1→2→3→5→8… days from today).
+  - Wrong answer → reset to “next day” (and reset sequence step to start).
+- **Tables**:
+  - `fact_review_state` (or equivalent): `userId` (FK to `app_user.id`), `factId`, `nextReviewAt`, `fibonacciStepIndex` (or equivalent), `updatedAt`
+  - Extend `quiz` to support scheduled quizzes: `mode` = `scheduled` and (optionally) `scheduledFor` date; reuse `quiz_item`.
+- **Due selection query**: “Due facts for user” = facts where `nextReviewAt <= today` (definition of “today” / timezone tracked as an open question), scoped by app user.
+- **Initial state**: When a fact becomes eligible for scheduled quizzing, it gets “due next day” and step 0/1 in the sequence.
+- **Quiz creation job**: Runs on a schedule (e.g. daily). For each **app user** (or in batches), finds due facts and creates a scheduled quiz with items for those facts/questions.
 - **Execution context**: Job runs with a service role or per-user DB session so that either RLS is bypassed in a controlled way or each app user’s context is set correctly when building their quiz. No reliance on a single “current user” from a web session.
 - **Deployment**: Cron runs in your production environment (e.g. Vercel cron, GitHub Actions, or worker). Document how to run it and how often.
 
-**Why this is a safe pause point**: Daily quizzes are created automatically from overdue facts. No UI required to verify creation (e.g. via DB or admin script).
+**Why this is a safe pause point**: Scheduled quizzes can be generated automatically from due facts, and the spaced-repetition state is represented and queryable. UI can come later.
 
-**Unlocks**: M3c can assume “there is a quiz to take” and focus on submission and schedule updates.
+**Unlocks**: M3c can assume “there is a quiz to take” (manual or scheduled) and focus on submission, result recording, and schedule updates for scheduled quizzes.
 
 ---
 
@@ -102,16 +115,21 @@ Users create and manage **facts** (things they want to remember). The system gen
 
 **Definition of Done**:
 
-- **API**: tRPC procedures to: get “current” or “today’s” quiz for the user; submit an answer for a quiz item (e.g. fact/question id + correct/incorrect). Uses protected procedure.
-- **Schedule updates**: On submit:
-  - **Correct**: Update that fact’s review state to next Fibonacci step and set `nextReviewAt = today + fib(step)` (or equivalent).
-  - **Wrong**: Reset that fact’s review state to “next day” and reset Fibonacci step.
+- **API**: tRPC procedures to:
+  - get a quiz for the user (by id; and/or “today’s scheduled quiz” if applicable)
+  - submit an answer for a quiz item (e.g. quiz item id + correct/incorrect)
+  - Uses protected procedure for user-triggered actions.
+- **Behavior by quiz mode**:
+  - **Manual quizzes**: submission records result (for UX/history), but does **not** update `fact_review_state` or any future scheduled selection.
+  - **Scheduled quizzes**: submission records result and updates spaced-repetition state:
+    - **Correct**: advance Fibonacci step and set `nextReviewAt = today + fib(step)` (or equivalent)
+    - **Wrong**: reset to “next day” and reset Fibonacci step
 - **Persistence**: Quiz and item results stored so you can show history or “last quiz” (e.g. `quiz_item.result` or a separate `review_event` table). No orphaned state.
 - **UI (minimal)**: User can open “today’s quiz,” see questions (from M2), and submit correct/incorrect; backend applies scheduling rules. Optional: show next review dates.
 
-**Why this is a safe pause point**: End-to-end flow works: cron creates quizzes, user takes quiz, answers update Fibonacci schedule. Product is usable for core recall loop.
+**Why this is a safe pause point**: End-to-end flow works for both modes: user can take a manual quiz on demand, and scheduled quizzes can be generated and taken with answers updating the Fibonacci schedule. Product is usable for the core recall loop.
 
-**Unlocks**: Polish (notifications, multiple question types, manual quizzes if desired).
+**Unlocks**: Polish (notifications, multiple question types, richer analytics/history).
 
 ---
 
@@ -120,15 +138,15 @@ Users create and manage **facts** (things they want to remember). The system gen
 ```
 1 (facts-crud-rls)           → []
 2 (ai-question-generation)   → [1]
-3a (quiz-data-model-and-scheduling) → [1]
-3b (daily-quiz-cron)         → [3a]
+3a (manual-quizzes)          → [1]
+3b (scheduled-quizzes)       → [1]
 3c (quiz-taking-and-result-recording) → [2, 3a, 3b]
 ```
 
 - **3a** can start after **1** (needs facts and user identity).
-- **2** can run in parallel with **3a** after **1**.
-- **3b** needs **3a** (scheduling model and “overdue” query).
-- **3c** needs **2** (questions to show), **3a** (schedule updates), and **3b** (quizzes to take).
+- **2** can run in parallel with **3a**/**3b** after **1**.
+- **3b** can start after **1** (it introduces scheduled selection + quiz creation).
+- **3c** needs **2** (questions to show) and supports both manual and scheduled quiz submission logic.
 
 ## Open Questions
 
@@ -137,8 +155,8 @@ Users create and manage **facts** (things they want to remember). The system gen
 | RLS vs app-only checks | Whether to use PostgreSQL RLS or enforce in app with `userId` in every query. | M1 |
 | Where to run AI (Edge vs serverless vs worker) | Affects latency and cost for question generation. | M2 |
 | One question vs many per fact | Storing multiple questions per fact affects schema and UX. | M2 |
-| Timezone for “today” / due date | User timezone vs UTC for cron and “next day.” | M3a / M3b |
-| Manual quizzes | Whether to support “quiz me on these facts” in addition to auto daily. | After M3c |
+| Timezone for “today” / due date | User timezone vs UTC for cron and “next day” in scheduled quizzes. | M3b |
+| Manual quizzes | Now explicitly modeled as M3a (on-demand, random N facts, no scheduling side-effects). | M3a |
 
 ## Decisions Made
 
@@ -148,5 +166,5 @@ Users create and manage **facts** (things they want to remember). The system gen
 | **Prefixed IDs (max 4-letter prefix)** | All app entity ids use format `{prefix}_{id}` (e.g. `user_abc…`, `fact_abc…`, `quiz_abc…`). Prefix is 1–4 letters; suffix is a unique value (e.g. UUID). See [docs/ids.md](../docs/ids.md). |
 | Fibonacci spaced repetition | You specified: correct → next in sequence (1,1,2,3,5,8… days); wrong → reset to next day. |
 | RLS for facts | Simplifies CRUD (no explicit user filter in app code) and enforces isolation at the DB. RLS uses app user id. |
-| Separate M3 into 3a / 3b / 3c | Smaller milestones: data model first, then cron, then taking and recording. Each leaves the system in a consistent state. |
+| Separate M3 into 3a / 3b / 3c | Smaller milestones: manual quizzes first, then scheduled quizzes + scheduling, then taking/submission + recording behavior per mode. Each leaves the system in a consistent state. |
 | “Daily quiz” = one entity per user per day | Assumed for clarity; can be refined in M3a (e.g. multiple quizzes per day if needed). |
