@@ -198,9 +198,14 @@ describe("fact.generateQuestion", () => {
     try {
       const caller = makeCaller(appUser.id);
 
-      await expect(
-        caller.fact.generateQuestion({ factId: "fact_nonexistent" }),
-      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      let threw = false;
+      try {
+        await caller.fact.generateQuestion({ factId: "fact_nonexistent" });
+      } catch (e: unknown) {
+        threw = true;
+        expect((e as { code: string }).code).toBe("NOT_FOUND");
+      }
+      expect(threw).toBe(true);
     } finally {
       await db.delete(schema.user).where(eq(schema.user.id, authUserId));
     }
@@ -215,9 +220,14 @@ describe("fact.generateQuestion", () => {
 
       const fact = await callerA.fact.create({ content: "User A's fact" });
 
-      await expect(
-        callerB.fact.generateQuestion({ factId: fact.id }),
-      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      let threw = false;
+      try {
+        await callerB.fact.generateQuestion({ factId: fact.id });
+      } catch (e: unknown) {
+        threw = true;
+        expect((e as { code: string }).code).toBe("NOT_FOUND");
+      }
+      expect(threw).toBe(true);
     } finally {
       await db.delete(schema.user).where(eq(schema.user.id, authA));
       await db.delete(schema.user).where(eq(schema.user.id, authB));

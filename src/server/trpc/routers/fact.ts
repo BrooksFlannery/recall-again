@@ -98,19 +98,23 @@ export const factRouter = router({
   generateQuestion: protectedProcedure
     .input(z.object({ factId: z.string() }))
     .output(QuestionSelectSchema)
-    .mutation(({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const factLayer = FactRepositoryLive.pipe(Layer.provide(ctx.requestDbLayer));
+      const fact = await Effect.runPromise(
+        Effect.gen(function* () {
+          const repo = yield* FactRepository;
+          return yield* repo.getById(input.factId);
+        }).pipe(Effect.provide(factLayer)),
+      );
+      if (!fact) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
       const layer = Layer.mergeAll(
-        FactRepositoryLive,
         QuestionRepositoryLive,
         QuestionGeneratorLive,
       ).pipe(Layer.provide(ctx.requestDbLayer));
       return Effect.runPromise(
         Effect.gen(function* () {
-          const factRepo = yield* FactRepository;
-          const fact = yield* factRepo.getById(input.factId);
-          if (!fact) {
-            throw new TRPCError({ code: "NOT_FOUND" });
-          }
           const generator = yield* QuestionGenerator;
           const generated = yield* generator.generateQuestionFromFact(fact.content);
           const questionRepo = yield* QuestionRepository;
@@ -122,21 +126,23 @@ export const factRouter = router({
   listQuestions: protectedProcedure
     .input(z.object({ factId: z.string() }))
     .output(z.array(QuestionSelectSchema))
-    .query(({ ctx, input }) => {
-      const layer = Layer.mergeAll(
-        FactRepositoryLive,
-        QuestionRepositoryLive,
-      ).pipe(Layer.provide(ctx.requestDbLayer));
+    .query(async ({ ctx, input }) => {
+      const factLayer = FactRepositoryLive.pipe(Layer.provide(ctx.requestDbLayer));
+      const fact = await Effect.runPromise(
+        Effect.gen(function* () {
+          const repo = yield* FactRepository;
+          return yield* repo.getById(input.factId);
+        }).pipe(Effect.provide(factLayer)),
+      );
+      if (!fact) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      const questionLayer = QuestionRepositoryLive.pipe(Layer.provide(ctx.requestDbLayer));
       return Effect.runPromise(
         Effect.gen(function* () {
-          const factRepo = yield* FactRepository;
-          const fact = yield* factRepo.getById(input.factId);
-          if (!fact) {
-            throw new TRPCError({ code: "NOT_FOUND" });
-          }
           const questionRepo = yield* QuestionRepository;
           return yield* questionRepo.listByFactId(input.factId);
-        }).pipe(Effect.provide(layer)),
+        }).pipe(Effect.provide(questionLayer)),
       );
     }),
 });
