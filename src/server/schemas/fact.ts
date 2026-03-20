@@ -3,7 +3,7 @@ import { z } from "zod";
 import { fact } from "@/server/db/schema-app";
 
 export const FactSelectSchema = createSelectSchema(fact);
-export type FactSelect = typeof FactSelectSchema._type;
+export type FactSelect = z.infer<typeof FactSelectSchema>;
 
 export const FactCreateInputSchema = z.object({
   content: z.string().min(1).max(10000),

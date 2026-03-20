@@ -1,4 +1,4 @@
-# [manual-quizzes] Patch 1: Add quiz and quiz_item tables to Drizzle schema
+# [manual-quizzes] Patch 2: Add migrations for quiz tables, RLS, and grants
 
 ## Problem Statement
 The workstream needs a first quiz flow that is **user-triggered** and intentionally **not tied to spaced repetition**. Today we have facts (with RLS) and flashcards/questions, but we do not have a “quiz session” data model, nor an API to create a quiz by selecting **N random facts** for the current user. We need manual quizzes to validate quiz session modeling and UI wiring while guaranteeing that manual quiz answers **do not** affect any future scheduled review state.
@@ -12,16 +12,20 @@ Introduce `quiz` + `quiz_item` tables with a `mode` field, starting with `manual
 3. **Use `ORDER BY random()`** for selection. It’s simple and correct for small-to-medium datasets. If performance becomes an issue later, we can optimize with sampling strategies.
 
 ## Dependencies Completed
-None - this patch has no dependencies.
+Patch 1 added `quiz` and `quiz_item` tables to `src/server/db/schema-app.ts`.
 
 ## Your Task
-### Patch 1 [INFRA]: Add `quiz` and `quiz_item` tables to Drizzle schema
-**Files to modify:**
-- `src/server/db/schema-app.ts`
+### Patch 2 [INFRA]: Add migrations for quiz tables + RLS + grants
+**Files to add/modify:**
+- `drizzle/0009_<name>.sql` (create tables)
+- `drizzle/0010_<name>.sql` (enable/force RLS + policies)
+- `drizzle/0011_<name>.sql` (grants to `recall_app`)
 
 **Changes:**
-1. Add `quiz` and `quiz_item` tables (ids, FKs, timestamps, `mode`, `position`)
-2. Add relations for joins used in repository reads
+1. Create `quiz`/`quiz_item`
+2. Enable + force RLS on both
+3. Add policies keyed by `app.user_id`
+4. Grant required privileges to `recall_app`
 
 ## Test Stubs to Add
 None - this patch does not introduce test stubs.
@@ -31,14 +35,14 @@ None - this patch does not implement tests.
 
 ## Git Instructions
 - Branch from: `main`
-- Branch name: `manual-quizzes/patch-1-schema-quiz-tables`
+- Branch name: `manual-quizzes/patch-2-migrations-rls-grants`
 - PR base: `main`
 
 **IMPORTANT: Open a draft PR immediately after your first commit.** Do not wait until implementation is complete. This ensures the PR title format is correct from the start.
 
 After your first commit, run:
 ```bash
-gh pr create --draft --title "[manual-quizzes] Patch 1: Add quiz and quiz_item tables to Drizzle schema" --body "Work in progress" --base main
+gh pr create --draft --title "[manual-quizzes] Patch 2: Add migrations for quiz tables, RLS, and grants" --body "Work in progress" --base main
 ```
 
 Then continue implementing. When finished:
@@ -49,6 +53,6 @@ Then continue implementing. When finished:
 ## PR Title (CRITICAL)
 **You MUST use this EXACT title format:**
 
-`[manual-quizzes] Patch 1: Add quiz and quiz_item tables to Drizzle schema`
+`[manual-quizzes] Patch 2: Add migrations for quiz tables, RLS, and grants`
 
 Do NOT use conventional commit format (e.g., `feat:`, `fix:`). The bracketed project name and patch number are required for tracking.

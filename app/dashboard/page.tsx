@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { MIN_FACTS_FOR_QUIZ } from "@/constants/quiz";
 import { trpc } from "@/trpc/client";
 import { authClient } from "@/lib/auth-client";
 
@@ -31,6 +32,12 @@ export default function DashboardPage() {
     },
   });
 
+  const createManualQuizMutation = trpc.quiz.createManual.useMutation({
+    onSuccess: (quiz) => {
+      router.push(`/quiz/${quiz.id}`);
+    },
+  });
+
   const [newContent, setNewContent] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -46,6 +53,8 @@ export default function DashboardPage() {
     {},
   );
   const hasFocusedAddFactRef = useRef(false);
+
+  const canStartQuiz = (facts?.length ?? 0) >= MIN_FACTS_FOR_QUIZ;
 
   useLayoutEffect(() => {
     const el = addFactTextareaRef.current;
@@ -243,9 +252,51 @@ export default function DashboardPage() {
 
   return (
     <main style={{ padding: "2rem 1.5rem" }}>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "0.25rem" }}>
-        What do you know?
-      </h1>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "1rem",
+          marginBottom: "0.25rem",
+        }}
+      >
+        <h1 style={{ fontSize: "1.5rem", margin: 0 }}>What do you know?</h1>
+        {canStartQuiz ? (
+          <button
+            type="button"
+            onClick={() => createManualQuizMutation.mutate({ factCount: 10 })}
+            disabled={createManualQuizMutation.isPending}
+            aria-busy={createManualQuizMutation.isPending}
+            aria-label="Start a manual quiz with random facts"
+            title="Start a manual quiz with up to 10 random facts"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "0.5rem",
+              padding: "8px 14px",
+              background: "var(--color-interactive-bg)",
+              color: "#000",
+              border: "1px solid var(--color-border)",
+              borderRadius: "6px",
+              fontSize: "0.875rem",
+              fontWeight: 600,
+              cursor: createManualQuizMutation.isPending ? "wait" : "pointer",
+              opacity: createManualQuizMutation.isPending ? 0.85 : 1,
+            }}
+          >
+            {createManualQuizMutation.isPending ? (
+              <span
+                className="add-btn-spinner add-btn-spinner-on-light"
+                aria-hidden
+              />
+            ) : null}
+            Quiz me
+          </button>
+        ) : null}
+      </div>
 
       <section style={{ marginBottom: "2rem" }}>
         <form

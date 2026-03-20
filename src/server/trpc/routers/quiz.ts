@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { Effect, Layer } from "effect";
+import { TRPCError } from "@trpc/server";
+import { MIN_FACTS_FOR_QUIZ } from "@/constants/quiz";
+import { FactRepository, FactRepositoryLive } from "@/server/effect/fact-repository";
 import { router, protectedProcedure } from "@/server/trpc/trpc";
 import {
   QuizRepository,
@@ -16,7 +19,21 @@ export const quizRouter = router({
   createManual: protectedProcedure
     .input(CreateManualQuizInputSchema)
     .output(QuizWithItemsSchema)
-    .mutation(({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const factLayer = FactRepositoryLive.pipe(Layer.provide(ctx.requestDbLayer));
+      const ownedFactCount = await Effect.runPromise(
+        Effect.gen(function* () {
+          const repo = yield* FactRepository;
+          return yield* repo.count();
+        }).pipe(Effect.provide(factLayer)),
+      );
+      if (ownedFactCount < MIN_FACTS_FOR_QUIZ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Need at least ${MIN_FACTS_FOR_QUIZ} facts to start a quiz (you have ${ownedFactCount}).`,
+        });
+      }
+
       const layer = QuizRepositoryLive.pipe(Layer.provide(ctx.requestDbLayer));
       return Effect.runPromise(
         Effect.gen(function* () {

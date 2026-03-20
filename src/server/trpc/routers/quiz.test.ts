@@ -2,6 +2,7 @@ import { beforeAll, describe, test, expect } from "bun:test";
 
 import { eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { MIN_FACTS_FOR_QUIZ } from "@/constants/quiz";
 import { db, schema, schemaApp } from "@/server/db";
 import { appRouter } from "@/server/trpc/root";
 import { createCallerFactory } from "@/server/trpc/trpc";
@@ -35,14 +36,22 @@ function makeCaller(appUserId: string) {
   return createCallerFactory(appRouter)({ appUser: { id: appUserId } });
 }
 
+async function createFacts(
+  caller: ReturnType<typeof makeCaller>,
+  count: number,
+  label: string,
+) {
+  for (let i = 0; i < count; i += 1) {
+    await caller.fact.create({ content: `${label} fact ${i + 1}` });
+  }
+}
+
 describe("quiz.createManual", () => {
   test("returns quiz with N items", async () => {
     const { authUserId, appUser } = await createTestUser("create_n");
     try {
       const caller = makeCaller(appUser.id);
-      await caller.fact.create({ content: "Fact 1" });
-      await caller.fact.create({ content: "Fact 2" });
-      await caller.fact.create({ content: "Fact 3" });
+      await createFacts(caller, MIN_FACTS_FOR_QUIZ, "N");
 
       const result = await caller.quiz.createManual({ factCount: 3 });
 
@@ -62,13 +71,16 @@ describe("quiz.createManual", () => {
       const callerA = makeCaller(userA.id);
       const callerB = makeCaller(userB.id);
 
-      const factA1 = await callerA.fact.create({ content: "User A fact 1" });
-      const factA2 = await callerA.fact.create({ content: "User A fact 2" });
-      const factA3 = await callerA.fact.create({ content: "User A fact 3" });
+      const userAFacts: { id: string }[] = [];
+      for (let i = 0; i < MIN_FACTS_FOR_QUIZ; i += 1) {
+        userAFacts.push(
+          await callerA.fact.create({ content: `User A fact ${i + 1}` }),
+        );
+      }
       await callerB.fact.create({ content: "User B fact 1" });
       await callerB.fact.create({ content: "User B fact 2" });
 
-      const userAFactIds = new Set([factA1.id, factA2.id, factA3.id]);
+      const userAFactIds = new Set(userAFacts.map((f) => f.id));
       const result = await callerA.quiz.createManual({ factCount: 3 });
 
       expect(result.items).toHaveLength(3);
@@ -77,6 +89,28 @@ describe("quiz.createManual", () => {
     } finally {
       await db.delete(schema.user).where(eq(schema.user.id, authA));
       await db.delete(schema.user).where(eq(schema.user.id, authB));
+    }
+  });
+
+  test("rejects when user has fewer than minimum facts", async () => {
+    const { authUserId, appUser } = await createTestUser("min_facts");
+    try {
+      const caller = makeCaller(appUser.id);
+      await createFacts(caller, MIN_FACTS_FOR_QUIZ - 1, "min");
+
+      let threw = false;
+      try {
+        await caller.quiz.createManual({ factCount: 3 });
+      } catch (e: unknown) {
+        threw = true;
+        expect((e as { code: string }).code).toBe("BAD_REQUEST");
+        expect(String((e as Error).message)).toContain(
+          String(MIN_FACTS_FOR_QUIZ),
+        );
+      }
+      expect(threw).toBe(true);
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
     }
   });
 
@@ -116,7 +150,7 @@ describe("quiz.getById", () => {
       const callerA = makeCaller(userA.id);
       const callerB = makeCaller(userB.id);
 
-      await callerA.fact.create({ content: "User A fact" });
+      await createFacts(callerA, MIN_FACTS_FOR_QUIZ, "getbyid");
       const quizResult = await callerA.quiz.createManual({ factCount: 1 });
 
       const resultB = await callerB.quiz.getById({ id: quizResult.id });
