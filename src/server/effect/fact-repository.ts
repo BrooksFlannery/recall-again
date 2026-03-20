@@ -1,11 +1,13 @@
 import { Context, Effect, Layer } from "effect";
-import { desc, eq } from "drizzle-orm";
+import { count, desc, eq } from "drizzle-orm";
 import { Db } from "@/server/effect/db";
 import { schemaApp } from "@/server/db";
 import type { FactSelect } from "@/server/schemas/fact";
 
 export interface IFactRepository {
   create: (appUserId: string, content: string) => Effect.Effect<FactSelect>;
+  /** Row count for the current user (RLS-scoped). */
+  count: () => Effect.Effect<number>;
   list: () => Effect.Effect<FactSelect[]>;
   getById: (id: string) => Effect.Effect<FactSelect | null>;
   update: (id: string, content: string) => Effect.Effect<FactSelect | null>;
@@ -31,6 +33,14 @@ export const FactRepositoryLive = Layer.effect(
             .returning()
             .then((rows) => rows[0]),
         ).pipe(Effect.orDie),
+
+      count: (): Effect.Effect<number> =>
+        Effect.tryPromise(async () => {
+          const [row] = await db
+            .select({ n: count() })
+            .from(schemaApp.fact);
+          return Number(row?.n ?? 0);
+        }).pipe(Effect.orDie),
 
       list: (): Effect.Effect<FactSelect[]> =>
         Effect.tryPromise(() =>
