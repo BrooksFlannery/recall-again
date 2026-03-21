@@ -1,6 +1,6 @@
 import { beforeAll, describe, test, expect } from "bun:test";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { MIN_FACTS_FOR_QUIZ } from "@/constants/quiz";
 import { db, schema, schemaApp } from "@/server/db";
@@ -143,45 +143,216 @@ describe("quiz.createManual", () => {
 });
 
 describe("submitItem", () => {
-  // PENDING: Patch 2
-  test.skip("manual does not change fact_review_state", async () => {
-    // Setup: create a manual quiz with at least one item
-    // Call submitItem with result "correct" on a manual quiz item
-    // Assert: fact_review_state row for the item's fact is unchanged
-    // (nextReviewAt, fibStep, etc. should be identical before and after)
+  test("manual does not change fact_review_state", async () => {
+    const { authUserId, appUser } = await createTestUser("submit_manual");
+    try {
+      const caller = makeCaller(appUser.id);
+      await createFacts(caller, MIN_FACTS_FOR_QUIZ, "submit_manual");
+      const quiz = await caller.quiz.createManual({ factCount: 1 });
+      const quizItem = quiz.items[0]!;
+
+      const initialNextReview = new Date("2026-04-01T00:00:00.000Z");
+      await db.insert(schemaApp.factReviewState).values({
+        userId: appUser.id,
+        factId: quizItem.factId,
+        nextReviewAt: initialNextReview,
+        fibonacciStepIndex: 3,
+      });
+
+      await caller.quiz.submitItem({ quizItemId: quizItem.id, result: "correct" });
+
+      const [reviewState] = await db
+        .select()
+        .from(schemaApp.factReviewState)
+        .where(
+          and(
+            eq(schemaApp.factReviewState.userId, appUser.id),
+            eq(schemaApp.factReviewState.factId, quizItem.factId),
+          ),
+        );
+
+      expect(reviewState?.fibonacciStepIndex).toBe(3);
+      expect(reviewState?.nextReviewAt.getTime()).toBe(initialNextReview.getTime());
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
+    }
   });
 
-  // PENDING: Patch 2
-  test.skip("scheduled updates nextReviewAt and fib step on correct", async () => {
-    // Setup: create a scheduled quiz item with an existing fact_review_state row
-    // Call submitItem with result "correct"
-    // Assert: fact_review_state.nextReviewAt advances by the next Fibonacci interval
-    // Assert: fact_review_state.fibStep increments correctly
+  test("scheduled updates nextReviewAt and fib step on correct", async () => {
+    const { authUserId, appUser } = await createTestUser("submit_sched_correct");
+    try {
+      const caller = makeCaller(appUser.id);
+      const fact = await caller.fact.create({ content: "scheduled fact correct" });
+
+      const initialStep = 2;
+      await db.insert(schemaApp.factReviewState).values({
+        userId: appUser.id,
+        factId: fact.id,
+        nextReviewAt: new Date("2026-03-20T00:00:00.000Z"),
+        fibonacciStepIndex: initialStep,
+      });
+
+      const [quizRow] = await db
+        .insert(schemaApp.quiz)
+        .values({
+          userId: appUser.id,
+          mode: "scheduled",
+          scheduledFor: new Date("2026-04-10T00:00:00.000Z"),
+        })
+        .returning();
+
+      const [quizItemRow] = await db
+        .insert(schemaApp.quizItem)
+        .values({ quizId: quizRow!.id, userId: appUser.id, factId: fact.id, position: 0 })
+        .returning();
+
+      const before = new Date();
+      const result = await caller.quiz.submitItem({
+        quizItemId: quizItemRow!.id,
+        result: "correct",
+      });
+      const after = new Date();
+
+      expect(result.reviewStateUpdated).toBe(true);
+
+      const [reviewState] = await db
+        .select()
+        .from(schemaApp.factReviewState)
+        .where(
+          and(
+            eq(schemaApp.factReviewState.userId, appUser.id),
+            eq(schemaApp.factReviewState.factId, fact.id),
+          ),
+        );
+
+      // initialStep=2, correct → newStep=3, fibonacciIntervalDays(3)=FIBONACCI[3]=3 days
+      expect(reviewState?.fibonacciStepIndex).toBe(3);
+      const expectedMinNextReview = new Date(before.getTime() + 3 * 24 * 60 * 60 * 1000);
+      const expectedMaxNextReview = new Date(after.getTime() + 3 * 24 * 60 * 60 * 1000);
+      expect(reviewState!.nextReviewAt.getTime()).toBeGreaterThanOrEqual(
+        expectedMinNextReview.getTime(),
+      );
+      expect(reviewState!.nextReviewAt.getTime()).toBeLessThanOrEqual(
+        expectedMaxNextReview.getTime(),
+      );
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
+    }
   });
 
-  // PENDING: Patch 2
-  test.skip("scheduled resets on incorrect", async () => {
-    // Setup: create a scheduled quiz item with an existing fact_review_state row
-    // (fibStep > 0 to confirm reset is observable)
-    // Call submitItem with result "incorrect"
-    // Assert: fact_review_state.fibStep resets to initial step
-    // Assert: fact_review_state.nextReviewAt is set to next day
+  test("scheduled resets on incorrect", async () => {
+    const { authUserId, appUser } = await createTestUser("submit_sched_incorrect");
+    try {
+      const caller = makeCaller(appUser.id);
+      const fact = await caller.fact.create({ content: "scheduled fact incorrect" });
+
+      await db.insert(schemaApp.factReviewState).values({
+        userId: appUser.id,
+        factId: fact.id,
+        nextReviewAt: new Date("2026-03-20T00:00:00.000Z"),
+        fibonacciStepIndex: 3,
+      });
+
+      const [quizRow] = await db
+        .insert(schemaApp.quiz)
+        .values({
+          userId: appUser.id,
+          mode: "scheduled",
+          scheduledFor: new Date("2026-04-11T00:00:00.000Z"),
+        })
+        .returning();
+
+      const [quizItemRow] = await db
+        .insert(schemaApp.quizItem)
+        .values({ quizId: quizRow!.id, userId: appUser.id, factId: fact.id, position: 0 })
+        .returning();
+
+      const before = new Date();
+      const result = await caller.quiz.submitItem({
+        quizItemId: quizItemRow!.id,
+        result: "incorrect",
+      });
+      const after = new Date();
+
+      expect(result.reviewStateUpdated).toBe(true);
+
+      const [reviewState] = await db
+        .select()
+        .from(schemaApp.factReviewState)
+        .where(
+          and(
+            eq(schemaApp.factReviewState.userId, appUser.id),
+            eq(schemaApp.factReviewState.factId, fact.id),
+          ),
+        );
+
+      // incorrect → fibStep resets to 0, nextReviewAt = now + 1 day
+      expect(reviewState?.fibonacciStepIndex).toBe(0);
+      const expectedMinNextReview = new Date(before.getTime() + 1 * 24 * 60 * 60 * 1000);
+      const expectedMaxNextReview = new Date(after.getTime() + 1 * 24 * 60 * 60 * 1000);
+      expect(reviewState!.nextReviewAt.getTime()).toBeGreaterThanOrEqual(
+        expectedMinNextReview.getTime(),
+      );
+      expect(reviewState!.nextReviewAt.getTime()).toBeLessThanOrEqual(
+        expectedMaxNextReview.getTime(),
+      );
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
+    }
   });
 
-  // PENDING: Patch 2
-  test.skip("cannot submit another user's item (RLS)", async () => {
-    // Setup: create userA's quiz and a quiz item belonging to userA
-    // Attempt to call submitItem as userB with userA's quiz item id
-    // Assert: procedure throws with FORBIDDEN / UNAUTHORIZED, or returns not-found
-    // Confirm userA's quiz_item.answeredAt remains null
+  test("cannot submit another user's item (RLS)", async () => {
+    const { authUserId: authA, appUser: userA } = await createTestUser("submit_rls_a");
+    const { authUserId: authB, appUser: userB } = await createTestUser("submit_rls_b");
+    try {
+      const callerA = makeCaller(userA.id);
+      const callerB = makeCaller(userB.id);
+
+      await createFacts(callerA, MIN_FACTS_FOR_QUIZ, "submit_rls");
+      const quiz = await callerA.quiz.createManual({ factCount: 1 });
+      const quizItemId = quiz.items[0]!.id;
+
+      let threw = false;
+      try {
+        await callerB.quiz.submitItem({ quizItemId, result: "correct" });
+      } catch (e) {
+        threw = true;
+        expect((e as { code: string }).code).toBe("NOT_FOUND");
+      }
+      expect(threw).toBe(true);
+
+      const [item] = await db
+        .select()
+        .from(schemaApp.quizItem)
+        .where(eq(schemaApp.quizItem.id, quizItemId));
+      expect(item?.answeredAt).toBeNull();
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authA));
+      await db.delete(schema.user).where(eq(schema.user.id, authB));
+    }
   });
 
-  // PENDING: Patch 2
-  test.skip("rejects second submit when already answered", async () => {
-    // Setup: create a quiz item and submit it once successfully
-    // Attempt to call submitItem again on the same item
-    // Assert: procedure throws with 409 Conflict or a validation error
-    // (per design decision: answered_at already set → reject to avoid schedule drift)
+  test("rejects second submit when already answered", async () => {
+    const { authUserId, appUser } = await createTestUser("submit_twice");
+    try {
+      const caller = makeCaller(appUser.id);
+      await createFacts(caller, MIN_FACTS_FOR_QUIZ, "twice");
+      const quiz = await caller.quiz.createManual({ factCount: 1 });
+      const quizItemId = quiz.items[0]!.id;
+
+      await caller.quiz.submitItem({ quizItemId, result: "correct" });
+
+      let threw = false;
+      try {
+        await caller.quiz.submitItem({ quizItemId, result: "incorrect" });
+      } catch (e) {
+        threw = true;
+        expect((e as { code: string }).code).toBe("CONFLICT");
+      }
+      expect(threw).toBe(true);
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
+    }
   });
 });
 
