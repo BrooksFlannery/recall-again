@@ -1,5 +1,15 @@
 import { relations, sql } from "drizzle-orm";
-import { boolean, integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  date,
+  integer,
+  pgTable,
+  primaryKey,
+  serial,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import { user } from "./schema";
 
 /** Append-only ping log. Each row records one ping. */
@@ -26,15 +36,6 @@ export const appUser = pgTable("app_user", {
     .notNull(),
 });
 
-export const appUserRelations = relations(appUser, ({ one, many }) => ({
-  authUser: one(user, {
-    fields: [appUser.authUserId],
-    references: [user.id],
-  }),
-  facts: many(fact),
-  quizzes: many(quiz),
-}));
-
 /** A single fact belonging to an app user. */
 export const fact = pgTable("fact", {
   id: text("id")
@@ -53,14 +54,27 @@ export const fact = pgTable("fact", {
     .notNull(),
 });
 
-export const factRelations = relations(fact, ({ one, many }) => ({
-  user: one(appUser, {
-    fields: [fact.userId],
-    references: [appUser.id],
+/** Spaced-repetition scheduling state per user per fact (M3-pre). */
+export const factReviewState = pgTable(
+  "fact_review_state",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => appUser.id, { onDelete: "cascade" }),
+    factId: text("fact_id")
+      .notNull()
+      .references(() => fact.id, { onDelete: "cascade" }),
+    nextReviewAt: timestamp("next_review_at", { withTimezone: true }).notNull(),
+    fibonacciStepIndex: integer("fibonacci_step_index").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.factId] }),
   }),
-  flashcards: many(flashcard),
-  quizItems: many(quizItem),
-}));
+);
 
 /** An AI-generated question prompt derived from a fact. Exactly one active row per fact; no RLS — access via fact ownership. */
 export const flashcard = pgTable("flashcard", {
@@ -78,38 +92,33 @@ export const flashcard = pgTable("flashcard", {
     .notNull(),
 });
 
-export const flashcardRelations = relations(flashcard, ({ one }) => ({
-  fact: one(fact, {
-    fields: [flashcard.factId],
-    references: [fact.id],
-  }),
-}));
-
 /** A quiz session belonging to an app user. */
-export const quiz = pgTable("quiz", {
-  id: text("id")
-    .primaryKey()
-    .default(sql`'quiz_' || gen_random_uuid()::text`),
-  userId: text("user_id")
-    .notNull()
-    .references(() => appUser.id, { onDelete: "cascade" }),
-  mode: text("mode").notNull().default("manual"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .defaultNow()
-    .$onUpdate(() => new Date())
-    .notNull(),
-});
-
-export const quizRelations = relations(quiz, ({ one, many }) => ({
-  user: one(appUser, {
-    fields: [quiz.userId],
-    references: [appUser.id],
+export const quiz = pgTable(
+  "quiz",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`'quiz_' || gen_random_uuid()::text`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => appUser.id, { onDelete: "cascade" }),
+    mode: text("mode").notNull().default("manual"),
+    /** UTC calendar day for idempotent scheduled quizzes (M3b). */
+    scheduledFor: date("scheduled_for", { mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    scheduledUserDayUnique: uniqueIndex("quiz_scheduled_user_day_unique")
+      .on(table.userId, table.scheduledFor)
+      .where(sql`${table.mode} = 'scheduled'`),
   }),
-  items: many(quizItem),
-}));
+);
 
 /** A single item within a quiz, referencing a fact. userId is denormalized for RLS. */
 export const quizItem = pgTable("quiz_item", {
@@ -126,6 +135,9 @@ export const quizItem = pgTable("quiz_item", {
     .notNull()
     .references(() => fact.id, { onDelete: "cascade" }),
   position: integer("position").notNull(),
+  /** App-level answer outcome (M3c); nullable until answered. */
+  result: text("result"),
+  answeredAt: timestamp("answered_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -134,6 +146,55 @@ export const quizItem = pgTable("quiz_item", {
     .$onUpdate(() => new Date())
     .notNull(),
 });
+
+export const appUserRelations = relations(appUser, ({ one, many }) => ({
+  authUser: one(user, {
+    fields: [appUser.authUserId],
+    references: [user.id],
+  }),
+  facts: many(fact),
+  quizzes: many(quiz),
+  factReviewStates: many(factReviewState),
+}));
+
+export const factRelations = relations(fact, ({ one, many }) => ({
+  user: one(appUser, {
+    fields: [fact.userId],
+    references: [appUser.id],
+  }),
+  flashcards: many(flashcard),
+  quizItems: many(quizItem),
+  reviewState: one(factReviewState, {
+    fields: [fact.id],
+    references: [factReviewState.factId],
+  }),
+}));
+
+export const factReviewStateRelations = relations(factReviewState, ({ one }) => ({
+  user: one(appUser, {
+    fields: [factReviewState.userId],
+    references: [appUser.id],
+  }),
+  fact: one(fact, {
+    fields: [factReviewState.factId],
+    references: [fact.id],
+  }),
+}));
+
+export const flashcardRelations = relations(flashcard, ({ one }) => ({
+  fact: one(fact, {
+    fields: [flashcard.factId],
+    references: [fact.id],
+  }),
+}));
+
+export const quizRelations = relations(quiz, ({ one, many }) => ({
+  user: one(appUser, {
+    fields: [quiz.userId],
+    references: [appUser.id],
+  }),
+  items: many(quizItem),
+}));
 
 export const quizItemRelations = relations(quizItem, ({ one }) => ({
   quiz: one(quiz, {

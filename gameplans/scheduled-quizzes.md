@@ -75,7 +75,7 @@ createScheduledQuizFromDueFacts: (
 
 ### 5) New facts → `fact_review_state`
 
-- If not handled in schema-foundation trigger: add **FactRepository.create** insert of `fact_review_state` here (small `[BEHAVIOR]` patch or same as repository patch).
+- **Implemented in M3-pre:** `AFTER INSERT ON fact` trigger `fact_review_state_after_fact_insert` (migration `0013_m3_schema_foundation.sql`) inserts a row with `next_review_at` at start of next UTC day and `fibonacci_step_index = 0`. No `FactRepository.create` change is required for M3b unless that trigger is removed later.
 
 ## Acceptance Criteria
 
