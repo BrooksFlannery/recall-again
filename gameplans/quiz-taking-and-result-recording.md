@@ -33,7 +33,7 @@ Add **tRPC procedures** (Effect + repositories) to fetch a quiz with items (and 
 
 | Area | Current state | Gap for M3c |
 |------|---------------|-----------|
-| **Schema** | Assumed from [`m3-schema-foundation.md`](m3-schema-foundation.md) | `quiz_item` answer columns + `fact_review_state` must exist |
+| **Schema** | Assumed from [`m3-schema-foundation.md`](m3-schema-foundation.md) | `quiz_item` answer columns + `fact_review_state` must exist; new facts get `fact_review_state` via DB trigger (`0013_m3_schema_foundation.sql`), not app code |
 | **Fibonacci / dates** | From M3b ([`scheduled-quizzes.md`](scheduled-quizzes.md)) | Import helpers; apply on submit for `mode === 'scheduled'` |
 | **tRPC** | [`quiz.ts`](../src/server/trpc/routers/quiz.ts): `createManual`, `getById` | Add `submitItemResult`, optionally `getTodayScheduled` or enrich `getById` with flashcard payload |
 | **UI** | Minimal per milestone | At least one path to take a quiz and submit (or API-only + tests) |
