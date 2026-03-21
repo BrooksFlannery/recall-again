@@ -151,13 +151,17 @@ describe("submitItem", () => {
       const quiz = await caller.quiz.createManual({ factCount: 1 });
       const quizItem = quiz.items[0]!;
 
+      // Trigger auto-created the row on fact insert; update to a known state.
       const initialNextReview = new Date("2026-04-01T00:00:00.000Z");
-      await db.insert(schemaApp.factReviewState).values({
-        userId: appUser.id,
-        factId: quizItem.factId,
-        nextReviewAt: initialNextReview,
-        fibonacciStepIndex: 3,
-      });
+      await db
+        .update(schemaApp.factReviewState)
+        .set({ nextReviewAt: initialNextReview, fibonacciStepIndex: 3 })
+        .where(
+          and(
+            eq(schemaApp.factReviewState.userId, appUser.id),
+            eq(schemaApp.factReviewState.factId, quizItem.factId),
+          ),
+        );
 
       await caller.quiz.submitItem({ quizItemId: quizItem.id, result: "correct" });
 
@@ -184,13 +188,17 @@ describe("submitItem", () => {
       const caller = makeCaller(appUser.id);
       const fact = await caller.fact.create({ content: "scheduled fact correct" });
 
+      // Trigger auto-created the row on fact insert; update to a known state.
       const initialStep = 2;
-      await db.insert(schemaApp.factReviewState).values({
-        userId: appUser.id,
-        factId: fact.id,
-        nextReviewAt: new Date("2026-03-20T00:00:00.000Z"),
-        fibonacciStepIndex: initialStep,
-      });
+      await db
+        .update(schemaApp.factReviewState)
+        .set({ nextReviewAt: new Date("2026-03-20T00:00:00.000Z"), fibonacciStepIndex: initialStep })
+        .where(
+          and(
+            eq(schemaApp.factReviewState.userId, appUser.id),
+            eq(schemaApp.factReviewState.factId, fact.id),
+          ),
+        );
 
       const [quizRow] = await db
         .insert(schemaApp.quiz)
@@ -246,12 +254,16 @@ describe("submitItem", () => {
       const caller = makeCaller(appUser.id);
       const fact = await caller.fact.create({ content: "scheduled fact incorrect" });
 
-      await db.insert(schemaApp.factReviewState).values({
-        userId: appUser.id,
-        factId: fact.id,
-        nextReviewAt: new Date("2026-03-20T00:00:00.000Z"),
-        fibonacciStepIndex: 3,
-      });
+      // Trigger auto-created the row on fact insert; update to a known state.
+      await db
+        .update(schemaApp.factReviewState)
+        .set({ nextReviewAt: new Date("2026-03-20T00:00:00.000Z"), fibonacciStepIndex: 3 })
+        .where(
+          and(
+            eq(schemaApp.factReviewState.userId, appUser.id),
+            eq(schemaApp.factReviewState.factId, fact.id),
+          ),
+        );
 
       const [quizRow] = await db
         .insert(schemaApp.quiz)
