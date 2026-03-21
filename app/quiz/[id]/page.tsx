@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { trpc } from "@/trpc/client";
@@ -17,6 +17,7 @@ export default function QuizPage() {
         : undefined;
 
   const { data: session, isPending: sessionPending } = authClient.useSession();
+  const utils = trpc.useUtils();
 
   const {
     data: quiz,
@@ -50,6 +51,17 @@ export default function QuizPage() {
 
   const showFullLoader = quizLoading || detailsLoading;
 
+  const [submitting, setSubmitting] = useState<Record<string, "correct" | "incorrect" | null>>({});
+
+  const submitItem = trpc.quiz.submitItem.useMutation({
+    onSuccess: () => {
+      utils.quiz.getById.invalidate({ id: id ?? "" });
+    },
+    onSettled: (_data, _err, variables) => {
+      setSubmitting((prev) => ({ ...prev, [variables.quizItemId]: null }));
+    },
+  });
+
   useEffect(() => {
     if (!sessionPending && !session?.user) {
       router.replace("/");
@@ -74,6 +86,10 @@ export default function QuizPage() {
       </main>
     );
   }
+
+  const answeredCount = sortedItems.filter((item) => item.result != null).length;
+  const totalCount = sortedItems.length;
+  const allAnswered = totalCount > 0 && answeredCount === totalCount;
 
   return (
     <main style={{ padding: "2rem 1.5rem", maxWidth: "42rem" }}>
@@ -113,63 +129,129 @@ export default function QuizPage() {
           <p style={{ color: "#6b7280", margin: 0 }}>Loading questions…</p>
         </div>
       ) : quiz == null ? (
-        <p>Quiz not found or you don’t have access.</p>
+        <p>Quiz not found or you don't have access.</p>
       ) : sortedItems.length === 0 ? (
         <p style={{ color: "#6b7280" }}>
           No facts in this quiz yet. Add some facts on the dashboard, then try
           again.
         </p>
       ) : (
-        <ol
-          style={{
-            margin: 0,
-            paddingLeft: "1.25rem",
-            display: "flex",
-            flexDirection: "column",
-            gap: "1.25rem",
-          }}
-        >
-          {sortedItems.map((item, i) => {
-            const q = questionQueries[i];
-            const questionText = q?.data?.question;
-            const err = q?.isError;
+        <>
+          {totalCount > 0 && (
+            <p style={{ color: "#6b7280", fontSize: "0.875rem", marginBottom: "1.25rem" }}>
+              {answeredCount} / {totalCount} answered
+              {allAnswered && " — complete!"}
+            </p>
+          )}
+          <ol
+            style={{
+              margin: 0,
+              paddingLeft: "1.25rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "1.25rem",
+            }}
+          >
+            {sortedItems.map((item, i) => {
+              const q = questionQueries[i];
+              const questionText = q?.data?.question;
+              const err = q?.isError;
+              const answered = item.result != null;
+              const pending = submitting[item.id];
 
-            return (
-              <li key={item.id} style={{ paddingLeft: "0.25rem" }}>
-                <p
-                  style={{
-                    fontWeight: 600,
-                    margin: "0 0 0.35rem",
-                    fontSize: "0.9375rem",
-                  }}
-                >
-                  Question {i + 1}
-                </p>
-                {err ? (
+              return (
+                <li key={item.id} style={{ paddingLeft: "0.25rem" }}>
                   <p
                     style={{
-                      color: "#b91c1c",
-                      margin: 0,
-                      fontSize: "0.875rem",
-                    }}
-                  >
-                    Failed to load this question.
-                  </p>
-                ) : questionText ? (
-                  <p
-                    style={{
-                      margin: 0,
+                      fontWeight: 600,
+                      margin: "0 0 0.35rem",
                       fontSize: "0.9375rem",
-                      whiteSpace: "pre-wrap",
                     }}
                   >
-                    {questionText}
+                    Question {i + 1}
                   </p>
-                ) : null}
-              </li>
-            );
-          })}
-        </ol>
+                  {err ? (
+                    <p
+                      style={{
+                        color: "#b91c1c",
+                        margin: 0,
+                        fontSize: "0.875rem",
+                      }}
+                    >
+                      Failed to load this question.
+                    </p>
+                  ) : questionText ? (
+                    <p
+                      style={{
+                        margin: "0 0 0.75rem",
+                        fontSize: "0.9375rem",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {questionText}
+                    </p>
+                  ) : null}
+
+                  {answered ? (
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: "0.875rem",
+                        color: item.result === "correct" ? "#15803d" : "#b91c1c",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {item.result === "correct" ? "✓ Correct" : "✗ Incorrect"}
+                    </p>
+                  ) : submitItem.error && submitting[item.id] == null && !answered ? null : (
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <button
+                        disabled={!!pending || answered}
+                        onClick={() => {
+                          setSubmitting((prev) => ({ ...prev, [item.id]: "correct" }));
+                          submitItem.mutate({ quizItemId: item.id, result: "correct" });
+                        }}
+                        style={{
+                          padding: "0.375rem 0.875rem",
+                          fontSize: "0.875rem",
+                          fontWeight: 500,
+                          borderRadius: "0.375rem",
+                          border: "1px solid #16a34a",
+                          background: pending === "correct" ? "#dcfce7" : "#f0fdf4",
+                          color: "#15803d",
+                          cursor: pending ? "default" : "pointer",
+                          opacity: pending && pending !== "correct" ? 0.5 : 1,
+                        }}
+                      >
+                        {pending === "correct" ? "Saving…" : "✓ Correct"}
+                      </button>
+                      <button
+                        disabled={!!pending || answered}
+                        onClick={() => {
+                          setSubmitting((prev) => ({ ...prev, [item.id]: "incorrect" }));
+                          submitItem.mutate({ quizItemId: item.id, result: "incorrect" });
+                        }}
+                        style={{
+                          padding: "0.375rem 0.875rem",
+                          fontSize: "0.875rem",
+                          fontWeight: 500,
+                          borderRadius: "0.375rem",
+                          border: "1px solid #dc2626",
+                          background: pending === "incorrect" ? "#fee2e2" : "#fff1f2",
+                          color: "#b91c1c",
+                          cursor: pending ? "default" : "pointer",
+                          opacity: pending && pending !== "incorrect" ? 0.5 : 1,
+                        }}
+                      >
+                        {pending === "incorrect" ? "Saving…" : "✗ Incorrect"}
+                      </button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </>
       )}
     </main>
   );
