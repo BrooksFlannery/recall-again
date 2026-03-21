@@ -85,6 +85,13 @@
       "when": 1773889500000,
       "tag": "0011_quiz_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1773889600000,
+      "tag": "0012_flashcard_active_flag",
+      "breakpoints": true
     }
   ]
 }

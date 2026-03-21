@@ -254,3 +254,25 @@ describe("fact.listQuestions", () => {
     }
   });
 });
+
+describe("fact.getOrCreateActiveQuestion", () => {
+  test("creates one active question then reuses it", async () => {
+    const { authUserId, appUser } = await createTestUser("get_or_create_active");
+    try {
+      const caller = makeCaller(appUser.id);
+      const fact = await caller.fact.create({ content: "Saturn is a gas giant." });
+
+      const first = await caller.fact.getOrCreateActiveQuestion({ factId: fact.id });
+      const second = await caller.fact.getOrCreateActiveQuestion({ factId: fact.id });
+      const all = await caller.fact.listQuestions({ factId: fact.id });
+
+      expect(first.id).toMatch(/^fc_/);
+      expect(second.id).toBe(first.id);
+      expect(first.active).toBe(true);
+      expect(second.active).toBe(true);
+      expect(all.length).toBe(1);
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
+    }
+  });
+});
