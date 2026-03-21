@@ -6,6 +6,15 @@ import { db, schema, schemaApp } from "@/server/db";
 import { Db } from "@/server/effect/db";
 import { QuizRepository, QuizRepositoryLive } from "@/server/effect/quiz-repository";
 
+// Sets nextReviewAt to a past date so the fact is "due".
+// A trigger auto-inserts a fact_review_state row on fact insert, so we update instead.
+async function makeDue(factId: string) {
+  await db
+    .update(schemaApp.factReviewState)
+    .set({ nextReviewAt: new Date("2020-01-01T00:00:00Z") })
+    .where(eq(schemaApp.factReviewState.factId, factId));
+}
+
 beforeAll(async () => {
   await migrate(db, { migrationsFolder: "./drizzle" });
 });
@@ -52,12 +61,7 @@ describe("createScheduledQuizFromDueFacts", () => {
         .values({ userId: appUser.id, content: "Test fact for scheduled quiz" })
         .returning();
 
-      await db.insert(schemaApp.factReviewState).values({
-        userId: appUser.id,
-        factId: fact!.id,
-        nextReviewAt: new Date("2020-01-01T00:00:00Z"),
-        fibonacciStepIndex: 0,
-      });
+      await makeDue(fact!.id);
 
       const asOf = new Date("2024-01-15T12:00:00Z");
       const scheduledFor = new Date("2024-01-15T00:00:00Z");
@@ -93,12 +97,7 @@ describe("createScheduledQuizFromDueFacts", () => {
         .values({ userId: appUser.id, content: "Idempotent test fact" })
         .returning();
 
-      await db.insert(schemaApp.factReviewState).values({
-        userId: appUser.id,
-        factId: fact!.id,
-        nextReviewAt: new Date("2020-01-01T00:00:00Z"),
-        fibonacciStepIndex: 0,
-      });
+      await makeDue(fact!.id);
 
       const asOf = new Date("2024-01-15T12:00:00Z");
       const scheduledFor = new Date("2024-01-15T00:00:00Z");
