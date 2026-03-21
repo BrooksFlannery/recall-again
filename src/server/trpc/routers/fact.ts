@@ -123,6 +123,48 @@ export const factRouter = router({
       );
     }),
 
+  getOrCreateActiveQuestion: protectedProcedure
+    .input(z.object({ factId: z.string() }))
+    .output(QuestionSelectSchema)
+    .query(async ({ ctx, input }) => {
+      const factLayer = FactRepositoryLive.pipe(Layer.provide(ctx.requestDbLayer));
+      const fact = await Effect.runPromise(
+        Effect.gen(function* () {
+          const repo = yield* FactRepository;
+          return yield* repo.getById(input.factId);
+        }).pipe(Effect.provide(factLayer)),
+      );
+      if (!fact) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+
+      const layer = Layer.mergeAll(
+        QuestionRepositoryLive,
+        QuestionGeneratorLive,
+      ).pipe(Layer.provide(ctx.requestDbLayer));
+
+      const result = await Effect.runPromise(
+        Effect.gen(function* () {
+          const questionRepo = yield* QuestionRepository;
+
+          const existing = yield* questionRepo.findActiveByFactId(input.factId);
+          if (existing) {
+            return existing;
+          }
+
+          const generator = yield* QuestionGenerator;
+          const generated = yield* generator.generateQuestionFromFact(fact.content);
+
+          return yield* questionRepo.create(
+            input.factId,
+            generated.question,
+            generated.answer,
+          );
+        }).pipe(Effect.provide(layer)),
+      );
+      return result;
+    }),
+
   listQuestions: protectedProcedure
     .input(z.object({ factId: z.string() }))
     .output(z.array(QuestionSelectSchema))
@@ -138,11 +180,12 @@ export const factRouter = router({
         throw new TRPCError({ code: "NOT_FOUND" });
       }
       const questionLayer = QuestionRepositoryLive.pipe(Layer.provide(ctx.requestDbLayer));
-      return Effect.runPromise(
+      const questions = await Effect.runPromise(
         Effect.gen(function* () {
           const questionRepo = yield* QuestionRepository;
           return yield* questionRepo.listByFactId(input.factId);
         }).pipe(Effect.provide(questionLayer)),
       );
+      return questions;
     }),
 });

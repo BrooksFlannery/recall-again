@@ -33,9 +33,9 @@ export default function QuizPage() {
     return [...quiz.items].sort((a, b) => a.position - b.position);
   }, [quiz]);
 
-  const flashcardQueries = trpc.useQueries((t) =>
+  const questionQueries = trpc.useQueries((t) =>
     sortedItems.map((item) =>
-      t.fact.listQuestions(
+      t.fact.getOrCreateActiveQuestion(
         { factId: item.factId },
         {
           enabled: sortedItems.length > 0 && !!session?.user,
@@ -46,7 +46,7 @@ export default function QuizPage() {
 
   const detailsLoading =
     sortedItems.length > 0 &&
-    flashcardQueries.some((q) => q.isLoading || q.isFetching);
+    questionQueries.some((q) => q.isLoading || q.isFetching);
 
   const showFullLoader = quizLoading || detailsLoading;
 
@@ -130,10 +130,9 @@ export default function QuizPage() {
           }}
         >
           {sortedItems.map((item, i) => {
-            const qFlash = flashcardQueries[i];
-            const flashcards = qFlash?.data ?? [];
-            const questionText = flashcards[0]?.question;
-            const err = qFlash?.isError;
+            const q = questionQueries[i];
+            const questionText = q?.data?.question;
+            const err = q?.isError;
 
             return (
               <li key={item.id} style={{ paddingLeft: "0.25rem" }}>

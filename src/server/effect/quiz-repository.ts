@@ -69,7 +69,9 @@ export const QuizRepositoryLive = Layer.effect(
             .from(schemaApp.quiz)
             .where(eq(schemaApp.quiz.id, id));
 
-          if (!quizRow) return null;
+          if (!quizRow) {
+            return null;
+          }
 
           const items = await db
             .select()

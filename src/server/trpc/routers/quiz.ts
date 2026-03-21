@@ -27,6 +27,7 @@ export const quizRouter = router({
           return yield* repo.count();
         }).pipe(Effect.provide(factLayer)),
       );
+
       if (ownedFactCount < MIN_FACTS_FOR_QUIZ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -35,24 +36,26 @@ export const quizRouter = router({
       }
 
       const layer = QuizRepositoryLive.pipe(Layer.provide(ctx.requestDbLayer));
-      return Effect.runPromise(
+      const result = await Effect.runPromise(
         Effect.gen(function* () {
           const repo = yield* QuizRepository;
           return yield* repo.createManual(ctx.appUser.id, input.factCount);
         }).pipe(Effect.provide(layer)),
       );
+      return result;
     }),
 
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .output(QuizWithItemsSchema.nullable())
-    .query(({ ctx, input }) => {
+    .query(async ({ ctx, input }) => {
       const layer = QuizRepositoryLive.pipe(Layer.provide(ctx.requestDbLayer));
-      return Effect.runPromise(
+      const row = await Effect.runPromise(
         Effect.gen(function* () {
           const repo = yield* QuizRepository;
           return yield* repo.getById(input.id);
         }).pipe(Effect.provide(layer)),
       );
+      return row;
     }),
 });

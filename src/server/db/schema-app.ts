@@ -1,5 +1,5 @@
 import { relations, sql } from "drizzle-orm";
-import { integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 import { user } from "./schema";
 
 /** Append-only ping log. Each row records one ping. */
@@ -62,7 +62,7 @@ export const factRelations = relations(fact, ({ one, many }) => ({
   quizItems: many(quizItem),
 }));
 
-/** An AI-generated flashcard (question + canonical answer) derived from a fact. Append-only; no RLS — access via fact ownership. */
+/** An AI-generated question prompt derived from a fact. Exactly one active row per fact; no RLS — access via fact ownership. */
 export const flashcard = pgTable("flashcard", {
   id: text("id")
     .primaryKey()
@@ -72,6 +72,7 @@ export const flashcard = pgTable("flashcard", {
     .references(() => fact.id, { onDelete: "cascade" }),
   question: text("question").notNull(),
   canonicalAnswer: text("canonical_answer").notNull(),
+  active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

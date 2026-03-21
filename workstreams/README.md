@@ -6,7 +6,7 @@ This folder holds **workstream** definitions: high-level roadmaps for multi-mile
 
 | Document | Description |
 |----------|-------------|
-| [recall-facts-quizzes.md](./recall-facts-quizzes.md) | Facts CRUD + RLS, AI question generation, and spaced-repetition quizzes (Fibonacci schedule, daily cron) |
+| [recall-facts-quizzes.md](./recall-facts-quizzes.md) | Facts CRUD + RLS, AI question generation, and spaced-repetition quizzes (Fibonacci schedule, daily cron). Executable gameplans live under [`gameplans/`](../gameplans/) (e.g. [`m3-schema-foundation.md`](../gameplans/m3-schema-foundation.md), [`scheduled-quizzes.md`](../gameplans/scheduled-quizzes.md), [`quiz-taking-and-result-recording.md`](../gameplans/quiz-taking-and-result-recording.md)). |
 
 ## Format
 
