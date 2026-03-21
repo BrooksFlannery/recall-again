@@ -9,7 +9,11 @@ import {
   QuizRepositoryLive,
 } from "@/server/effect/quiz-repository";
 import { QuizSelectSchema, CreateManualQuizInputSchema } from "@/server/schemas/quiz";
-import { QuizItemSelectSchema } from "@/server/schemas/quiz-item";
+import {
+  QuizItemSelectSchema,
+  SubmitQuizItemInputSchema,
+  SubmitQuizItemOutputSchema,
+} from "@/server/schemas/quiz-item";
 
 const QuizWithItemsSchema = QuizSelectSchema.extend({
   items: z.array(QuizItemSelectSchema),
@@ -57,5 +61,36 @@ export const quizRouter = router({
         }).pipe(Effect.provide(layer)),
       );
       return row;
+    }),
+
+  submitItem: protectedProcedure
+    .input(SubmitQuizItemInputSchema)
+    .output(SubmitQuizItemOutputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const layer = QuizRepositoryLive.pipe(Layer.provide(ctx.requestDbLayer));
+      const result = await Effect.runPromise(
+        Effect.gen(function* () {
+          const repo = yield* QuizRepository;
+          return yield* repo.submitQuizItemResult(ctx.appUser.id, {
+            quizItemId: input.quizItemId,
+            result: input.result,
+          });
+        }).pipe(Effect.provide(layer)),
+      );
+
+      if (!result.ok) {
+        if (result.reason === "not_found") {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Quiz item not found.",
+          });
+        }
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Quiz item has already been answered.",
+        });
+      }
+
+      return { quizItem: result.quizItem, reviewStateUpdated: result.reviewStateUpdated };
     }),
 });
