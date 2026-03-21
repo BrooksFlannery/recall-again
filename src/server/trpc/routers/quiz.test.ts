@@ -142,6 +142,49 @@ describe("quiz.createManual", () => {
   });
 });
 
+describe("submitItem", () => {
+  // PENDING: Patch 2
+  test.skip("manual does not change fact_review_state", async () => {
+    // Setup: create a manual quiz with at least one item
+    // Call submitItem with result "correct" on a manual quiz item
+    // Assert: fact_review_state row for the item's fact is unchanged
+    // (nextReviewAt, fibStep, etc. should be identical before and after)
+  });
+
+  // PENDING: Patch 2
+  test.skip("scheduled updates nextReviewAt and fib step on correct", async () => {
+    // Setup: create a scheduled quiz item with an existing fact_review_state row
+    // Call submitItem with result "correct"
+    // Assert: fact_review_state.nextReviewAt advances by the next Fibonacci interval
+    // Assert: fact_review_state.fibStep increments correctly
+  });
+
+  // PENDING: Patch 2
+  test.skip("scheduled resets on incorrect", async () => {
+    // Setup: create a scheduled quiz item with an existing fact_review_state row
+    // (fibStep > 0 to confirm reset is observable)
+    // Call submitItem with result "incorrect"
+    // Assert: fact_review_state.fibStep resets to initial step
+    // Assert: fact_review_state.nextReviewAt is set to next day
+  });
+
+  // PENDING: Patch 2
+  test.skip("cannot submit another user's item (RLS)", async () => {
+    // Setup: create userA's quiz and a quiz item belonging to userA
+    // Attempt to call submitItem as userB with userA's quiz item id
+    // Assert: procedure throws with FORBIDDEN / UNAUTHORIZED, or returns not-found
+    // Confirm userA's quiz_item.answeredAt remains null
+  });
+
+  // PENDING: Patch 2
+  test.skip("rejects second submit when already answered", async () => {
+    // Setup: create a quiz item and submit it once successfully
+    // Attempt to call submitItem again on the same item
+    // Assert: procedure throws with 409 Conflict or a validation error
+    // (per design decision: answered_at already set → reject to avoid schedule drift)
+  });
+});
+
 describe("quiz.getById", () => {
   test("user cannot read another user's quiz (RLS)", async () => {
     const { authUserId: authA, appUser: userA } = await createTestUser("getbyid_a");
