@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { MIN_FACTS_FOR_QUIZ } from "@/constants/quiz";
 import { trpc } from "@/trpc/client";
 import { authClient } from "@/lib/auth-client";
+import { useCommandMode } from "../components/command-mode-context";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -38,10 +39,10 @@ export default function DashboardPage() {
     },
   });
 
+  const commandMode = useCommandMode();
   const [newContent, setNewContent] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
-  const [commandMode, setCommandMode] = useState(false);
   const [focusedContainer, setFocusedContainer] = useState<
     "add" | string | null
   >(null);
@@ -102,7 +103,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.metaKey || e.ctrlKey) setCommandMode(true);
       if (
         (e.metaKey || e.ctrlKey) &&
         e.key === "Backspace" &&
@@ -113,14 +113,9 @@ export default function DashboardPage() {
         handleDelete(focusedContainer);
       }
     }
-    function onKeyUp(e: KeyboardEvent) {
-      if (e.key === "Meta" || e.key === "Control") setCommandMode(false);
-    }
     window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
     };
   }, [focusedContainer, facts]);
 
@@ -256,13 +251,24 @@ export default function DashboardPage() {
         style={{
           display: "flex",
           flexWrap: "wrap",
-          alignItems: "center",
-          justifyContent: "space-between",
+          alignItems: "baseline",
+          justifyContent: "flex-start",
           gap: "1rem",
+          width: "100%",
           marginBottom: "0.25rem",
+          boxSizing: "border-box",
         }}
       >
-        <h1 style={{ fontSize: "1.5rem", margin: 0 }}>What do you know?</h1>
+        <h1
+          style={{
+            fontSize: "1.5rem",
+            margin: 0,
+            padding: 0,
+            lineHeight: 1.2,
+          }}
+        >
+          What do you know?
+        </h1>
         {canStartQuiz ? (
           <button
             type="button"
@@ -277,6 +283,7 @@ export default function DashboardPage() {
               justifyContent: "center",
               gap: "0.5rem",
               padding: "8px 14px",
+              marginLeft: "auto",
               background: "var(--color-interactive-bg)",
               color: "#000",
               border: "1px solid var(--color-border)",

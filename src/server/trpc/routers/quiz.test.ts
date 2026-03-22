@@ -1,4 +1,36 @@
-import { beforeAll, describe, test, expect } from "bun:test";
+import { beforeAll, describe, test, expect, mock } from "bun:test";
+
+mock.module("openai", () => ({
+  default: class MockOpenAI {
+    chat = {
+      completions: {
+        create: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  question: "Test question?",
+                  answer: "Canonical answer",
+                }),
+              },
+            },
+          ],
+        }),
+      },
+    };
+  },
+}));
+
+let mockGradeOutcome: "correct" | "incorrect" = "correct";
+
+mock.module("@/server/effect/quiz-grader", () => ({
+  gradeQuizItems: async (items: { quizItemId: string }[]) =>
+    items.map((i) => ({
+      quizItemId: i.quizItemId,
+      result: mockGradeOutcome,
+      reasoning: "test",
+    })),
+}));
 
 import { and, eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -142,8 +174,9 @@ describe("quiz.createManual", () => {
   });
 });
 
-describe("submitItem", () => {
+describe("submitQuiz", () => {
   test("manual does not change fact_review_state", async () => {
+    mockGradeOutcome = "correct";
     const { authUserId, appUser } = await createTestUser("submit_manual");
     try {
       const caller = makeCaller(appUser.id);
@@ -151,7 +184,6 @@ describe("submitItem", () => {
       const quiz = await caller.quiz.createManual({ factCount: 1 });
       const quizItem = quiz.items[0]!;
 
-      // Trigger auto-created the row on fact insert; update to a known state.
       const initialNextReview = new Date("2026-04-01T00:00:00.000Z");
       await db
         .update(schemaApp.factReviewState)
@@ -163,7 +195,10 @@ describe("submitItem", () => {
           ),
         );
 
-      await caller.quiz.submitItem({ quizItemId: quizItem.id, result: "correct" });
+      await caller.quiz.submitQuiz({
+        quizId: quiz.id,
+        answers: [{ quizItemId: quizItem.id, userAnswer: "my answer" }],
+      });
 
       const [reviewState] = await db
         .select()
@@ -183,12 +218,12 @@ describe("submitItem", () => {
   });
 
   test("scheduled updates nextReviewAt and fib step on correct", async () => {
+    mockGradeOutcome = "correct";
     const { authUserId, appUser } = await createTestUser("submit_sched_correct");
     try {
       const caller = makeCaller(appUser.id);
       const fact = await caller.fact.create({ content: "scheduled fact correct" });
 
-      // Trigger auto-created the row on fact insert; update to a known state.
       const initialStep = 2;
       await db
         .update(schemaApp.factReviewState)
@@ -215,13 +250,11 @@ describe("submitItem", () => {
         .returning();
 
       const before = new Date();
-      const result = await caller.quiz.submitItem({
-        quizItemId: quizItemRow!.id,
-        result: "correct",
+      await caller.quiz.submitQuiz({
+        quizId: quizRow!.id,
+        answers: [{ quizItemId: quizItemRow!.id, userAnswer: "answer" }],
       });
       const after = new Date();
-
-      expect(result.reviewStateUpdated).toBe(true);
 
       const [reviewState] = await db
         .select()
@@ -233,7 +266,6 @@ describe("submitItem", () => {
           ),
         );
 
-      // initialStep=2, correct → newStep=3, fibonacciIntervalDays(3)=FIBONACCI[3]=3 days
       expect(reviewState?.fibonacciStepIndex).toBe(3);
       const expectedMinNextReview = new Date(before.getTime() + 3 * 24 * 60 * 60 * 1000);
       const expectedMaxNextReview = new Date(after.getTime() + 3 * 24 * 60 * 60 * 1000);
@@ -249,12 +281,12 @@ describe("submitItem", () => {
   });
 
   test("scheduled resets on incorrect", async () => {
+    mockGradeOutcome = "incorrect";
     const { authUserId, appUser } = await createTestUser("submit_sched_incorrect");
     try {
       const caller = makeCaller(appUser.id);
       const fact = await caller.fact.create({ content: "scheduled fact incorrect" });
 
-      // Trigger auto-created the row on fact insert; update to a known state.
       await db
         .update(schemaApp.factReviewState)
         .set({ nextReviewAt: new Date("2026-03-20T00:00:00.000Z"), fibonacciStepIndex: 3 })
@@ -280,13 +312,11 @@ describe("submitItem", () => {
         .returning();
 
       const before = new Date();
-      const result = await caller.quiz.submitItem({
-        quizItemId: quizItemRow!.id,
-        result: "incorrect",
+      await caller.quiz.submitQuiz({
+        quizId: quizRow!.id,
+        answers: [{ quizItemId: quizItemRow!.id, userAnswer: "wrong" }],
       });
       const after = new Date();
-
-      expect(result.reviewStateUpdated).toBe(true);
 
       const [reviewState] = await db
         .select()
@@ -298,7 +328,6 @@ describe("submitItem", () => {
           ),
         );
 
-      // incorrect → fibStep resets to 0, nextReviewAt = now + 1 day
       expect(reviewState?.fibonacciStepIndex).toBe(0);
       const expectedMinNextReview = new Date(before.getTime() + 1 * 24 * 60 * 60 * 1000);
       const expectedMaxNextReview = new Date(after.getTime() + 1 * 24 * 60 * 60 * 1000);
@@ -309,11 +338,13 @@ describe("submitItem", () => {
         expectedMaxNextReview.getTime(),
       );
     } finally {
+      mockGradeOutcome = "correct";
       await db.delete(schema.user).where(eq(schema.user.id, authUserId));
     }
   });
 
-  test("cannot submit another user's item (RLS)", async () => {
+  test("cannot submit another user's quiz (RLS)", async () => {
+    mockGradeOutcome = "correct";
     const { authUserId: authA, appUser: userA } = await createTestUser("submit_rls_a");
     const { authUserId: authB, appUser: userB } = await createTestUser("submit_rls_b");
     try {
@@ -326,7 +357,10 @@ describe("submitItem", () => {
 
       let threw = false;
       try {
-        await callerB.quiz.submitItem({ quizItemId, result: "correct" });
+        await callerB.quiz.submitQuiz({
+          quizId: quiz.id,
+          answers: [{ quizItemId, userAnswer: "x" }],
+        });
       } catch (e) {
         threw = true;
         expect((e as { code: string }).code).toBe("NOT_FOUND");
@@ -345,6 +379,7 @@ describe("submitItem", () => {
   });
 
   test("rejects second submit when already answered", async () => {
+    mockGradeOutcome = "correct";
     const { authUserId, appUser } = await createTestUser("submit_twice");
     try {
       const caller = makeCaller(appUser.id);
@@ -352,16 +387,72 @@ describe("submitItem", () => {
       const quiz = await caller.quiz.createManual({ factCount: 1 });
       const quizItemId = quiz.items[0]!.id;
 
-      await caller.quiz.submitItem({ quizItemId, result: "correct" });
+      await caller.quiz.submitQuiz({
+        quizId: quiz.id,
+        answers: [{ quizItemId, userAnswer: "first" }],
+      });
 
       let threw = false;
       try {
-        await caller.quiz.submitItem({ quizItemId, result: "incorrect" });
+        await caller.quiz.submitQuiz({
+          quizId: quiz.id,
+          answers: [{ quizItemId, userAnswer: "second" }],
+        });
       } catch (e) {
         threw = true;
         expect((e as { code: string }).code).toBe("CONFLICT");
       }
       expect(threw).toBe(true);
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
+    }
+  });
+});
+
+describe("quiz.list", () => {
+  test("returns summaries for current user", async () => {
+    const { authUserId, appUser } = await createTestUser("list");
+    try {
+      const caller = makeCaller(appUser.id);
+      await createFacts(caller, MIN_FACTS_FOR_QUIZ, "list");
+      const quiz = await caller.quiz.createManual({ factCount: 2 });
+      const list = await caller.quiz.list();
+      expect(list.some((l) => l.id === quiz.id)).toBe(true);
+      const row = list.find((l) => l.id === quiz.id);
+      expect(row?.itemCount).toBe(2);
+      expect(row?.answeredCount).toBe(0);
+      expect(row?.correctCount).toBe(0);
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
+    }
+  });
+
+  test("does not include other users quizzes (RLS)", async () => {
+    const { authUserId: authA, appUser: userA } = await createTestUser("list_a");
+    const { authUserId: authB, appUser: userB } = await createTestUser("list_b");
+    try {
+      const callerA = makeCaller(userA.id);
+      const callerB = makeCaller(userB.id);
+      await createFacts(callerA, MIN_FACTS_FOR_QUIZ, "list_a");
+      const quizA = await callerA.quiz.createManual({ factCount: 1 });
+      const listB = await callerB.quiz.list();
+      expect(listB.some((l) => l.id === quizA.id)).toBe(false);
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authA));
+      await db.delete(schema.user).where(eq(schema.user.id, authB));
+    }
+  });
+});
+
+describe("quiz.incompleteScheduledCount", () => {
+  test("is 0 when only manual quizzes exist", async () => {
+    const { authUserId, appUser } = await createTestUser("inc_sched");
+    try {
+      const caller = makeCaller(appUser.id);
+      await createFacts(caller, MIN_FACTS_FOR_QUIZ, "inc_sched");
+      await caller.quiz.createManual({ factCount: 2 });
+      const n = await caller.quiz.incompleteScheduledCount();
+      expect(n).toBe(0);
     } finally {
       await db.delete(schema.user).where(eq(schema.user.id, authUserId));
     }

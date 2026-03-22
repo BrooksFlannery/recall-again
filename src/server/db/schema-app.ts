@@ -135,8 +135,26 @@ export const quizItem = pgTable("quiz_item", {
     .notNull()
     .references(() => fact.id, { onDelete: "cascade" }),
   position: integer("position").notNull(),
-  /** App-level answer outcome (M3c); nullable until answered. */
+  /** User's free-text answer; set when the quiz is submitted. */
+  userAnswer: text("user_answer"),
+  /** Short explanation from the grader model. */
+  aiReasoning: text("ai_reasoning"),
+  /** AI verdict at grade time; does not change when the learner overrides. */
+  aiResult: text("ai_result"),
+  /**
+   * Effective outcome for score display and spaced repetition.
+   * Initially matches `aiResult`; the learner may override if the AI was wrong.
+   */
   result: text("result"),
+  /**
+   * Snapshot of `fact_review_state.fibonacci_step_index` before this item was graded
+   * (scheduled quizzes only). Used to recompute SRS when `result` is overridden.
+   */
+  reviewFibonacciStepBefore: integer("review_fibonacci_step_before"),
+  /** Snapshot of `fact_review_state.next_review_at` before this item was graded. */
+  reviewNextReviewAtBefore: timestamp("review_next_review_at_before", {
+    withTimezone: true,
+  }),
   answeredAt: timestamp("answered_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()

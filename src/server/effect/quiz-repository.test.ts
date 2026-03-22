@@ -79,11 +79,12 @@ describe("createScheduledQuizFromDueFacts", () => {
         );
       });
 
-      expect(result).not.toBeNull();
-      expect(result!.mode).toBe("scheduled");
-      expect(result!.userId).toBe(appUser.id);
-      expect(result!.items).toHaveLength(1);
-      expect(result!.items[0]!.factId).toBe(fact!.id);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("expected created quiz");
+      expect(result.quiz.mode).toBe("scheduled");
+      expect(result.quiz.userId).toBe(appUser.id);
+      expect(result.quiz.items).toHaveLength(1);
+      expect(result.quiz.items[0]!.factId).toBe(fact!.id);
     } finally {
       await db.delete(schema.user).where(eq(schema.user.id, authUserId));
     }
@@ -128,8 +129,10 @@ describe("createScheduledQuizFromDueFacts", () => {
         );
       });
 
-      expect(first).not.toBeNull();
-      expect(second).toBeNull();
+      expect(first.ok).toBe(true);
+      expect(second.ok).toBe(false);
+      if (second.ok) throw new Error("expected skip");
+      expect(second.reason).toBe("quiz_already_exists_for_day");
 
       const quizzes = await db
         .select()

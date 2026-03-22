@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
-import { Header } from "./components/header";
+import { AppShell } from "./components/app-shell";
 
 export const metadata: Metadata = {
   title: "Recall",
@@ -18,8 +18,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <Providers>
-          <Header />
-          {children}
+          <AppShell>{children}</AppShell>
         </Providers>
       </body>
     </html>

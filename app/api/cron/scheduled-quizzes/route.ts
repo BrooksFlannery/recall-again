@@ -3,7 +3,16 @@ import { sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { db, schemaApp } from "@/server/db";
 import { Db } from "@/server/effect/db";
-import { QuizRepository, QuizRepositoryLive } from "@/server/effect/quiz-repository";
+import {
+  QuizRepository,
+  QuizRepositoryLive,
+  type CreateScheduledQuizFromDueFactsResult,
+} from "@/server/effect/quiz-repository";
+
+type ScheduledQuizSkipReason = Extract<
+  CreateScheduledQuizFromDueFactsResult,
+  { ok: false }
+>["reason"];
 
 export async function POST(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -26,6 +35,11 @@ export async function POST(req: NextRequest) {
 
   let quizzesCreated = 0;
   let skipped = 0;
+  const skipReasonCounts: Record<ScheduledQuizSkipReason, number> = {
+    no_due_facts: 0,
+    quiz_already_exists_for_day: 0,
+  };
+  const skipDetails: Array<{ userId: string; reason: ScheduledQuizSkipReason }> = [];
 
   for (const user of users) {
     const result = await db.transaction(async (tx) => {
@@ -41,12 +55,28 @@ export async function POST(req: NextRequest) {
       );
     });
 
-    if (result !== null) {
+    if (result.ok) {
       quizzesCreated++;
     } else {
       skipped++;
+      skipReasonCounts[result.reason]++;
+      skipDetails.push({ userId: user.id, reason: result.reason });
+      console.info("[cron/scheduled-quizzes] skipped user", {
+        userId: user.id,
+        reason: result.reason,
+        scheduledFor: scheduledFor.toISOString(),
+        asOf: asOf.toISOString(),
+      });
     }
   }
 
-  return NextResponse.json({ processedUsers: users.length, quizzesCreated, skipped });
+  return NextResponse.json({
+    processedUsers: users.length,
+    quizzesCreated,
+    skipped,
+    scheduledFor: scheduledFor.toISOString(),
+    asOf: asOf.toISOString(),
+    skipReasonCounts,
+    skipDetails,
+  });
 }
