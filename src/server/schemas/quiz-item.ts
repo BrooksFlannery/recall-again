@@ -9,14 +9,31 @@ export type QuizItemResult = z.infer<typeof QuizItemResultSchema>;
 export const QuizItemSelectSchema = createSelectSchema(quizItem);
 export type QuizItemSelect = z.infer<typeof QuizItemSelectSchema>;
 
-export const SubmitQuizItemInputSchema = z.object({
+export const SubmitQuizInputSchema = z.object({
+  quizId: z.string(),
+  answers: z.array(
+    z.object({
+      quizItemId: z.string(),
+      userAnswer: z.string(),
+    }),
+  ),
+});
+export type SubmitQuizInput = z.infer<typeof SubmitQuizInputSchema>;
+
+export const SubmitQuizOutputSchema = z.object({
+  items: z.array(QuizItemSelectSchema),
+  correctCount: z.number(),
+  totalCount: z.number(),
+});
+export type SubmitQuizOutput = z.infer<typeof SubmitQuizOutputSchema>;
+
+export const OverrideQuizItemInputSchema = z.object({
   quizItemId: z.string(),
   result: QuizItemResultSchema,
 });
-export type SubmitQuizItemInput = z.infer<typeof SubmitQuizItemInputSchema>;
+export type OverrideQuizItemInput = z.infer<typeof OverrideQuizItemInputSchema>;
 
-export const SubmitQuizItemOutputSchema = z.object({
+export const OverrideQuizItemOutputSchema = z.object({
   quizItem: QuizItemSelectSchema,
-  reviewStateUpdated: z.boolean(),
 });
-export type SubmitQuizItemOutput = z.infer<typeof SubmitQuizItemOutputSchema>;
+export type OverrideQuizItemOutput = z.infer<typeof OverrideQuizItemOutputSchema>;
