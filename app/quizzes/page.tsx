@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MIN_FACTS_FOR_QUIZ } from "@/constants/quiz";
 import { isIncompleteScheduledQuiz } from "@/lib/quiz-completion";
 import { trpc } from "@/trpc/client";
 import { authClient } from "@/lib/auth-client";
+import { useCommandMode } from "../components/command-mode-context";
+import { CommandJumpHint } from "../components/command-jump-hint";
 
 function formatWhen(d: Date | string) {
   return new Date(d).toLocaleString(undefined, {
@@ -18,7 +20,10 @@ function formatWhen(d: Date | string) {
 export default function QuizzesPage() {
   const router = useRouter();
   const { data: session, isPending: sessionPending } = authClient.useSession();
+  const commandMode = useCommandMode();
   const utils = trpc.useUtils();
+  const [focusedQuizId, setFocusedQuizId] = useState<string | null>(null);
+  const quizLinkRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
 
   const { data: facts } = trpc.fact.list.useQuery(undefined, {
     enabled: !!session?.user,
@@ -40,6 +45,75 @@ export default function QuizzesPage() {
     isError,
     error,
   } = trpc.quiz.list.useQuery(undefined, { enabled: !!session?.user });
+
+  const quizzesJumpHints = useMemo(() => {
+    if (!commandMode || !quizzes?.length) {
+      return {} as Record<string, ("J" | "K")[]>;
+    }
+    const ids = quizzes.map((q) => q.id);
+    const hints: Record<string, ("J" | "K")[]> = {};
+    const push = (id: string, k: "J" | "K") => {
+      const arr = hints[id] ?? (hints[id] = []);
+      if (!arr.includes(k)) arr.push(k);
+    };
+
+    const idx = focusedQuizId ? ids.indexOf(focusedQuizId) : -1;
+
+    if (idx < 0) {
+      push(ids[0], "J");
+      push(ids[ids.length - 1], "K");
+      return hints;
+    }
+    if (idx > 0) {
+      push(ids[idx - 1], "K");
+    }
+    if (idx < ids.length - 1) {
+      push(ids[idx + 1], "J");
+    }
+    return hints;
+  }, [commandMode, quizzes, focusedQuizId]);
+
+  function isFocusInAnyQuizLink(): boolean {
+    const el = document.activeElement;
+    if (!el || !(el instanceof HTMLElement)) return false;
+    for (const a of Object.values(quizLinkRefs.current)) {
+      if (a && (a === el || a.contains(el))) return true;
+    }
+    return false;
+  }
+
+  useEffect(() => {
+    if (!quizzes?.length || isLoading || isError) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      const list = quizzes;
+      if (!list?.length) return;
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const down = e.key === "j" || e.key === "J";
+      const up = e.key === "k" || e.key === "K";
+      if (!down && !up) return;
+      e.preventDefault();
+
+      const ids = list.map((q) => q.id);
+      let idx = focusedQuizId ? ids.indexOf(focusedQuizId) : -1;
+      if (down) {
+        if (idx < 0) idx = 0;
+        else idx = Math.min(idx + 1, ids.length - 1);
+      } else {
+        if (idx < 0) idx = ids.length - 1;
+        else idx = Math.max(idx - 1, 0);
+      }
+
+      const nextId = ids[idx];
+      if (nextId == null) return;
+
+      quizLinkRefs.current[nextId]?.focus();
+      setFocusedQuizId(nextId);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [quizzes, focusedQuizId, isLoading, isError]);
 
   useEffect(() => {
     if (!sessionPending && !session?.user) {
@@ -66,17 +140,21 @@ export default function QuizzesPage() {
     boxSizing: "border-box",
   };
 
+  const hasQuizList =
+    !isError && !isLoading && !!quizzes?.length;
+
   return (
     <main style={{ padding: "2rem 1.5rem" }}>
       <div
         style={{
           display: "flex",
           flexWrap: "wrap",
-          alignItems: "baseline",
+          alignItems: "flex-end",
           justifyContent: "flex-start",
           gap: "1rem",
           width: "100%",
-          marginBottom: "0.25rem",
+          minHeight: "var(--page-header-row-min-height)",
+          marginBottom: hasQuizList && canStartQuiz ? 0 : "0.25rem",
           boxSizing: "border-box",
         }}
       >
@@ -108,7 +186,8 @@ export default function QuizzesPage() {
               background: "var(--color-interactive-bg)",
               color: "#000",
               border: "1px solid var(--color-border)",
-              borderRadius: "6px",
+              borderBottom: hasQuizList ? "none" : "1px solid var(--color-border)",
+              borderRadius: hasQuizList ? "6px 6px 0 0" : "6px",
               fontSize: "0.875rem",
               fontWeight: 600,
               cursor: createManualQuizMutation.isPending ? "wait" : "pointer",
@@ -170,22 +249,48 @@ export default function QuizzesPage() {
             const isFirst = index === 0;
             const isLast = index === quizzes.length - 1;
             const only = quizzes.length === 1;
+            const tabbedHeader = hasQuizList && canStartQuiz;
             const radius = only
-              ? "6px"
+              ? tabbedHeader
+                ? "6px 0 6px 6px"
+                : "6px"
               : isFirst
-                ? "6px 6px 0 0"
+                ? tabbedHeader
+                  ? "6px 0 0 0"
+                  : "6px 6px 0 0"
                 : isLast
                   ? "0 0 6px 6px"
                   : 0;
 
+            const isFocused = focusedQuizId === q.id;
+
             return (
-              <li key={q.id} style={{ position: "relative" }}>
+              <li key={q.id} className="command-jump-hint-anchor">
+                {quizzesJumpHints[q.id]?.length ? (
+                  <CommandJumpHint keys={quizzesJumpHints[q.id]} />
+                ) : null}
                 <Link
+                  ref={(el) => {
+                    quizLinkRefs.current[q.id] = el;
+                  }}
                   href={`/quiz/${q.id}`}
+                  onFocus={() => setFocusedQuizId(q.id)}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      if (!isFocusInAnyQuizLink()) {
+                        setFocusedQuizId(null);
+                      }
+                    }, 0);
+                  }}
                   style={{
                     ...cardLinkStyle,
                     borderRadius: radius,
                     ...(isFirst ? {} : { borderTop: "none" }),
+                    position: "relative",
+                    zIndex: isFocused ? 1 : undefined,
+                    boxShadow: isFocused
+                      ? "0 0 0 1px var(--color-border)"
+                      : "none",
                   }}
                   className="quiz-list-link"
                 >

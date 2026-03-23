@@ -4,10 +4,31 @@
   --color-interactive-bg: #f0f0f0;
   --color-border: #000;
   --main-max-width: 480px;
+  /* Title row: matches Quiz me control height so h1 + body align across pages */
+  --page-header-row-min-height: 2.5rem;
+  /* Default UI text (matches dashboard fact fields via inheritance) */
+  --font-body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
+
+/* Dark mode: override tokens on the root (e.g. html.dark or [data-theme="dark"]) so
+   SVG halos and surfaces that use var(--color-bg) stay aligned with the page. */
 
 body {
   background: var(--color-bg);
+  font-family: var(--font-body);
+}
+
+/* h1 keeps a serif stack so titles aren’t forced onto the new UI sans body font. */
+h1 {
+  font-family: ui-serif, Georgia, "Times New Roman", Times, serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 .quiz-list-incomplete-badge {
@@ -29,6 +50,28 @@ main,
   margin-left: auto;
   margin-right: auto;
   box-sizing: border-box;
+}
+
+/* Cmd/Ctrl+J/K navigation hints: sit just left of the narrow column (can extend into page padding) */
+.command-jump-hint-anchor {
+  position: relative;
+}
+
+.command-jump-hint {
+  position: absolute;
+  right: 100%;
+  margin-right: 0.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+  user-select: none;
 }
 
 /* Reusable auth / form styles */
@@ -119,6 +162,7 @@ main,
   display: flex;
   min-height: 100vh;
   align-items: stretch;
+  overflow: visible;
 }
 
 .app-sidebar {
@@ -130,6 +174,14 @@ main,
   display: flex;
   flex-direction: column;
   transition: width 0.18s ease;
+  overflow: visible;
+  /* Full viewport column: don’t stretch with main content; stay fixed while page scrolls */
+  align-self: flex-start;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100dvh;
+  z-index: 2;
 }
 
 .app-sidebar--collapsed {
@@ -137,10 +189,15 @@ main,
 }
 
 .app-sidebar-top {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
   padding: 0.75rem 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Match nav hint column: full-width anchor, collapse control aligned end */
+.app-sidebar-top .app-sidebar-link-hint-anchor {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
 }
 
 .app-sidebar-collapse-btn {
@@ -170,18 +227,40 @@ main,
   height: 1.125rem;
 }
 
-.app-sidebar-hotkey-hint {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  line-height: 1;
-}
-
 .app-sidebar-nav {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   padding: 0.75rem 0.5rem;
   flex: 1;
+  /* Must stay overflow: visible so ⌘/Ctrl digit hints (abs pos, left: 100%) aren’t clipped.
+     overflow-y: auto here forces overflow-x to compute to auto and hides 1/2 past the rail. */
+  overflow: visible;
+}
+
+/* Cmd/Ctrl+1/2 hints: past sidebar border, into the main column gutter */
+.app-sidebar-link-hint-anchor {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.app-sidebar-nav-hotkey-hint {
+  position: absolute;
+  left: 100%;
+  /* nav right padding + sidebar border + gap (align past .app-sidebar edge) */
+  margin-left: calc(0.5rem + 1px + 0.4rem);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+  user-select: none;
 }
 
 .app-sidebar-link {
@@ -202,8 +281,7 @@ main,
   box-sizing: border-box;
 }
 
-.app-sidebar--collapsed .app-sidebar-nav .app-sidebar-link,
-.app-sidebar--collapsed .app-sidebar-footer .app-sidebar-link {
+.app-sidebar--collapsed .app-sidebar-nav .app-sidebar-link {
   justify-content: center;
   padding-left: 0.35rem;
   padding-right: 0.35rem;
@@ -271,54 +349,6 @@ main,
   height: 0.875rem;
   padding: 0 3px;
   font-size: 0.625rem;
-}
-
-.app-sidebar-footer {
-  margin-top: auto;
-  padding: 0.5rem;
-}
-
-.app-sidebar-settings {
-  position: relative;
-}
-
-.app-sidebar-settings-btn {
-  font-weight: 500;
-}
-
-.app-sidebar-settings-panel {
-  position: absolute;
-  left: 100%;
-  bottom: 0;
-  margin-left: 8px;
-  z-index: 20;
-  min-width: 220px;
-  max-width: min(280px, calc(100vw - 100px));
-  padding: 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: #fff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-}
-
-.app-sidebar-settings-user {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.app-sidebar-settings-name {
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.app-sidebar-settings-email {
-  font-size: 0.8125rem;
-  color: #4b5563;
-  word-break: break-word;
 }
 
 .app-sidebar-signout {

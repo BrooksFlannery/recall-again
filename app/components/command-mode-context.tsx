@@ -14,17 +14,22 @@ export function CommandModeProvider({ children }: { children: ReactNode }) {
   const [commandMode, setCommandMode] = useState(false);
 
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.metaKey || e.ctrlKey) setCommandMode(true);
+    /** Reads actual modifier state so “hold ⌘ only” works (metaKey is often false on Meta’s own keydown). */
+    function syncFromEvent(e: KeyboardEvent) {
+      setCommandMode(
+        e.getModifierState("Meta") || e.getModifierState("Control"),
+      );
     }
-    function onKeyUp(e: KeyboardEvent) {
-      if (e.key === "Meta" || e.key === "Control") setCommandMode(false);
+    function onBlur() {
+      setCommandMode(false);
     }
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("keydown", syncFromEvent);
+    window.addEventListener("keyup", syncFromEvent);
+    window.addEventListener("blur", onBlur);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("keydown", syncFromEvent);
+      window.removeEventListener("keyup", syncFromEvent);
+      window.removeEventListener("blur", onBlur);
     };
   }, []);
 
