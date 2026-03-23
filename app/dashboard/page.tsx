@@ -1,11 +1,15 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { MIN_FACTS_FOR_QUIZ } from "@/constants/quiz";
 import { trpc } from "@/trpc/client";
 import { authClient } from "@/lib/auth-client";
 import { useCommandMode } from "../components/command-mode-context";
+import { CommandJumpHint } from "../components/command-jump-hint";
+import { Copy, Plus, Save, Trash2 } from "lucide-react";
+
+const DASHBOARD_ADD_HINT_ID = "__add__";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -57,6 +61,48 @@ export default function DashboardPage() {
 
   const canStartQuiz = (facts?.length ?? 0) >= MIN_FACTS_FOR_QUIZ;
 
+  const dashboardJumpHints = useMemo(() => {
+    if (!commandMode || !facts?.length) {
+      return {} as Record<string, ("J" | "K")[]>;
+    }
+    const hints: Record<string, ("J" | "K")[]> = {};
+    const push = (id: string, k: "J" | "K") => {
+      const arr = hints[id] ?? (hints[id] = []);
+      if (!arr.includes(k)) arr.push(k);
+    };
+
+    const n = facts.length;
+
+    /** Nothing focused: same idea as quizzes — J on top (add), K on bottom (last fact). */
+    if (focusedContainer == null) {
+      push(DASHBOARD_ADD_HINT_ID, "J");
+      push(facts[n - 1].id, "K");
+      return hints;
+    }
+
+    if (focusedContainer === "add") {
+      push(facts[0].id, "J");
+      return hints;
+    }
+
+    const idx = facts.findIndex((f) => f.id === focusedContainer);
+    if (idx < 0) {
+      push(facts[0].id, "J");
+      push(facts[n - 1].id, "K");
+      return hints;
+    }
+
+    if (idx === 0) {
+      push(DASHBOARD_ADD_HINT_ID, "K");
+    } else {
+      push(facts[idx - 1].id, "K");
+    }
+    if (idx < n - 1) {
+      push(facts[idx + 1].id, "J");
+    }
+    return hints;
+  }, [commandMode, facts, focusedContainer]);
+
   useLayoutEffect(() => {
     const el = addFactTextareaRef.current;
     if (!el) return;
@@ -103,14 +149,82 @@ export default function DashboardPage() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+
       if (
-        (e.metaKey || e.ctrlKey) &&
         e.key === "Backspace" &&
         focusedContainer &&
         focusedContainer !== "add"
       ) {
         e.preventDefault();
         handleDelete(focusedContainer);
+        return;
+      }
+
+      if (e.key === "j" || e.key === "J") {
+        if (focusedContainer == null) {
+          e.preventDefault();
+          addFactTextareaRef.current?.focus();
+          setFocusedContainer("add");
+          return;
+        }
+        if (!facts?.length) return;
+        e.preventDefault();
+        if (focusedContainer === "add") {
+          factTextareaRefs.current[facts[0].id]?.focus();
+          setFocusedContainer(facts[0].id);
+          return;
+        }
+        const idx = facts.findIndex((f) => f.id === focusedContainer);
+        if (idx < 0) {
+          factTextareaRefs.current[facts[0].id]?.focus();
+          setFocusedContainer(facts[0].id);
+          return;
+        }
+        if (idx < facts.length - 1) {
+          const nextId = facts[idx + 1].id;
+          factTextareaRefs.current[nextId]?.focus();
+          setFocusedContainer(nextId);
+        }
+        return;
+      }
+
+      if (e.key === "k" || e.key === "K") {
+        if (focusedContainer == null) {
+          e.preventDefault();
+          if (facts?.length) {
+            const lastId = facts[facts.length - 1].id;
+            factTextareaRefs.current[lastId]?.focus();
+            setFocusedContainer(lastId);
+          } else {
+            addFactTextareaRef.current?.focus();
+            setFocusedContainer("add");
+          }
+          return;
+        }
+        if (!facts?.length) return;
+        e.preventDefault();
+        if (focusedContainer === "add") {
+          addFactTextareaRef.current?.focus();
+          setFocusedContainer("add");
+          return;
+        }
+        const idx = facts.findIndex((f) => f.id === focusedContainer);
+        if (idx < 0) {
+          const lastId = facts[facts.length - 1].id;
+          factTextareaRefs.current[lastId]?.focus();
+          setFocusedContainer(lastId);
+          return;
+        }
+        if (idx === 0) {
+          addFactTextareaRef.current?.focus();
+          setFocusedContainer("add");
+          return;
+        }
+        const prevId = facts[idx - 1].id;
+        factTextareaRefs.current[prevId]?.focus();
+        setFocusedContainer(prevId);
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -181,11 +295,49 @@ export default function DashboardPage() {
     );
   }
 
-  function handleTextareaKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      e.currentTarget.form?.requestSubmit();
+  function isModEnter(e: React.KeyboardEvent) {
+    if (!(e.metaKey || e.ctrlKey)) return false;
+    return (
+      e.key === "Enter" ||
+      e.key === "NumpadEnter" ||
+      e.code === "Enter" ||
+      e.code === "NumpadEnter"
+    );
+  }
+
+  /** Cmd/Ctrl+Enter must not use requestSubmit: fact rows often have no submit button (copy/delete only). */
+  function handleAddFactTextareaKeyDown(
+    e: React.KeyboardEvent<HTMLTextAreaElement>,
+  ) {
+    if (!isModEnter(e)) return;
+    e.preventDefault();
+    const content = newContent.trim();
+    if (!content || createMutation.isPending) return;
+    createMutation.mutate({ content }, { onSuccess: () => setNewContent("") });
+  }
+
+  function handleFactTextareaKeyDown(
+    e: React.KeyboardEvent<HTMLTextAreaElement>,
+    factId: string,
+    savedContent: string,
+  ) {
+    if (!isModEnter(e)) return;
+    e.preventDefault();
+    if (editingId !== factId) {
+      copyFactToClipboard(savedContent);
+      return;
     }
+    const content = editContent.trim();
+    if (!content || updateMutation.isPending) return;
+    updateMutation.mutate(
+      { id: factId, content },
+      {
+        onSuccess: () => {
+          setEditingId(null);
+          setEditContent("");
+        },
+      },
+    );
   }
 
   function isFocusInAnyContainer(): boolean {
@@ -199,9 +351,13 @@ export default function DashboardPage() {
   }
 
   const factButtonBase: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     padding: "6px 10px",
     boxSizing: "border-box",
     minWidth: "2.75rem",
+    minHeight: "2.25rem",
     background: "var(--color-interactive-bg)",
     color: "#000",
     border: "1px solid var(--color-border)",
@@ -210,19 +366,24 @@ export default function DashboardPage() {
   };
   const factDeleteButtonStyle: React.CSSProperties = {
     ...factButtonBase,
-    minWidth: "3rem",
     borderRight: "none",
     borderBottom: "none",
     borderRadius: "6px 0 0 0",
   };
-  const factEditButtonStyle: React.CSSProperties = {
+  const factSecondaryButtonStyle: React.CSSProperties = {
     ...factButtonBase,
     borderRight: "none",
     borderBottom: "none",
     borderRadius: "0 0 6px 0",
   };
 
+  function copyFactToClipboard(text: string) {
+    void navigator.clipboard.writeText(text);
+  }
+
   const borderValue = "1px solid var(--color-border)";
+  const hasFactList = !factsLoading && !!(facts?.length);
+  const tabbedQuizMeHeader = hasFactList && canStartQuiz;
   const factTextareaStyle: React.CSSProperties = {
     display: "block",
     width: "100%",
@@ -251,11 +412,12 @@ export default function DashboardPage() {
         style={{
           display: "flex",
           flexWrap: "wrap",
-          alignItems: "baseline",
+          alignItems: "flex-end",
           justifyContent: "flex-start",
           gap: "1rem",
           width: "100%",
-          marginBottom: "0.25rem",
+          minHeight: "var(--page-header-row-min-height)",
+          marginBottom: tabbedQuizMeHeader ? 0 : "0.25rem",
           boxSizing: "border-box",
         }}
       >
@@ -287,7 +449,10 @@ export default function DashboardPage() {
               background: "var(--color-interactive-bg)",
               color: "#000",
               border: "1px solid var(--color-border)",
-              borderRadius: "6px",
+              borderBottom: tabbedQuizMeHeader
+                ? "none"
+                : "1px solid var(--color-border)",
+              borderRadius: tabbedQuizMeHeader ? "6px 6px 0 0" : "6px",
               fontSize: "0.875rem",
               fontWeight: 600,
               cursor: createManualQuizMutation.isPending ? "wait" : "pointer",
@@ -306,14 +471,18 @@ export default function DashboardPage() {
       </div>
 
       <section style={{ marginBottom: "2rem" }}>
-        <form
+        <div className="command-jump-hint-anchor">
+          {dashboardJumpHints[DASHBOARD_ADD_HINT_ID]?.length ? (
+            <CommandJumpHint keys={dashboardJumpHints[DASHBOARD_ADD_HINT_ID]} />
+          ) : null}
+          <form
           ref={addFormRef}
           onSubmit={handleCreate}
           style={{
             display: "flex",
             flexDirection: "column",
             border: borderValue,
-            borderRadius: "6px",
+            borderRadius: tabbedQuizMeHeader ? "6px 0 6px 6px" : "6px",
             overflow: "hidden",
             position: "relative",
             zIndex: focusedContainer === "add" ? 1 : undefined,
@@ -335,7 +504,7 @@ export default function DashboardPage() {
                 }
               }, 0);
             }}
-            onKeyDown={handleTextareaKeyDown}
+            onKeyDown={handleAddFactTextareaKeyDown}
             placeholder="Enter a fact…"
             maxLength={10000}
             rows={3}
@@ -347,7 +516,7 @@ export default function DashboardPage() {
               padding: "0.5rem 0.75rem",
               border: "none",
               outline: "none",
-              borderRadius: "6px 6px 0 0",
+              borderRadius: tabbedQuizMeHeader ? "6px 0 0 0" : "6px 6px 0 0",
               fontSize: "0.875rem",
               resize: "none",
               minHeight: "4.5rem",
@@ -368,14 +537,16 @@ export default function DashboardPage() {
               type="submit"
               disabled={createMutation.isPending || !newContent.trim()}
               aria-busy={createMutation.isPending}
-              aria-label="Create"
+              aria-label="Add fact"
+              title="Add fact (⌘↵)"
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 padding: "6px 10px",
                 boxSizing: "border-box",
-                minWidth: "3rem",
+                minWidth: "2.75rem",
+                minHeight: "2.25rem",
                 background: "var(--color-interactive-bg)",
                 color: "#000",
                 border: "1px solid var(--color-border)",
@@ -394,11 +565,12 @@ export default function DashboardPage() {
               ) : commandMode && focusedContainer === "add" ? (
                 "↵"
               ) : (
-                "Create"
+                <Plus size={18} aria-hidden />
               )}
             </button>
           </div>
         </form>
+        </div>
         {createMutation.isError && (
           <p
             style={{
@@ -434,11 +606,13 @@ export default function DashboardPage() {
               const formContainerStyle: React.CSSProperties = {
                 display: "flex",
                 flexDirection: "column",
-                border: borderValue,
+                borderLeft: borderValue,
+                borderRight: borderValue,
+                borderBottom: borderValue,
+                borderTop: isTop ? borderValue : "none",
                 borderRadius: containerRadius,
                 overflow: "hidden",
                 position: "relative",
-                ...(isTop ? {} : { borderTop: "none" }),
                 ...(focusedContainer === fact.id ? { zIndex: 1 } : {}),
                 boxShadow:
                   focusedContainer === fact.id
@@ -448,10 +622,14 @@ export default function DashboardPage() {
               return (
                 <li
                   key={fact.id}
+                  className="command-jump-hint-anchor"
                   style={{
                     position: "relative",
                   }}
                 >
+                  {dashboardJumpHints[fact.id]?.length ? (
+                    <CommandJumpHint keys={dashboardJumpHints[fact.id]} />
+                  ) : null}
                   <form
                     ref={(el) => {
                       factFormRefs.current[fact.id] = el;
@@ -488,7 +666,9 @@ export default function DashboardPage() {
                           }
                         }, 0);
                       }}
-                      onKeyDown={handleTextareaKeyDown}
+                      onKeyDown={(e) =>
+                        handleFactTextareaKeyDown(e, fact.id, fact.content)
+                      }
                       maxLength={10000}
                       rows={3}
                       style={{
@@ -510,15 +690,18 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() => handleDelete(fact.id)}
                         disabled={deleteMutation.isPending}
-                        aria-label="Delete"
+                        aria-label="Delete fact"
+                        title="Delete fact"
                         style={{
                           ...factDeleteButtonStyle,
                           borderRadius: deleteButtonRadius,
                         }}
                       >
-                        {commandMode && focusedContainer === fact.id
-                          ? "⌫"
-                          : "Delete"}
+                        {commandMode && focusedContainer === fact.id ? (
+                          "⌫"
+                        ) : (
+                          <Trash2 size={18} aria-hidden />
+                        )}
                       </button>
                       {editingId === fact.id &&
                       editContent.trim() !== fact.content ? (
@@ -527,9 +710,10 @@ export default function DashboardPage() {
                           disabled={
                             updateMutation.isPending || !editContent.trim()
                           }
-                          aria-label="Save"
+                          aria-label="Save changes"
+                          title="Save changes (⌘↵)"
                           style={{
-                            ...factEditButtonStyle,
+                            ...factSecondaryButtonStyle,
                             borderRadius: editButtonRadius,
                           }}
                         >
@@ -541,22 +725,25 @@ export default function DashboardPage() {
                           ) : commandMode && focusedContainer === fact.id ? (
                             "↵"
                           ) : (
-                            "Save"
+                            <Save size={18} aria-hidden />
                           )}
                         </button>
                       ) : (
                         <button
                           type="button"
-                          onClick={() => startEdit(fact.id, fact.content)}
-                          aria-label="Edit"
+                          onClick={() => copyFactToClipboard(fact.content)}
+                          aria-label="Copy fact to clipboard"
+                          title="Copy to clipboard (⌘↵)"
                           style={{
-                            ...factEditButtonStyle,
+                            ...factSecondaryButtonStyle,
                             borderRadius: editButtonRadius,
                           }}
                         >
-                          {commandMode && focusedContainer === fact.id
-                            ? "↵"
-                            : "Edit"}
+                          {commandMode && focusedContainer === fact.id ? (
+                            "↵"
+                          ) : (
+                            <Copy size={18} aria-hidden />
+                          )}
                         </button>
                       )}
                     </div>

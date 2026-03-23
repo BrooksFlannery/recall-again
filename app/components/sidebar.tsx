@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { trpc } from "@/trpc/client";
 import { useCommandMode } from "./command-mode-context";
 import {
   IconChevronLeft,
   IconChevronRight,
-  IconDashboard,
+  IconHome,
   IconQuizzes,
   IconSettings,
 } from "./sidebar-icons";
@@ -31,6 +31,9 @@ function NavLink({
   pathname,
   badgeCount,
   badgeAriaDetail,
+  commandHotkey,
+  showCommandHotkey,
+  linkTitle,
 }: {
   href: string;
   label: string;
@@ -41,6 +44,10 @@ function NavLink({
   badgeCount?: number;
   /** Appended to aria-label / title when badge is shown (collapsed nav). */
   badgeAriaDetail?: string;
+  /** Digit shown to the right of the row when ⌘/Ctrl is held (e.g. nav shortcut). */
+  commandHotkey?: string;
+  showCommandHotkey?: boolean;
+  linkTitle?: string;
 }) {
   const active = navLinkActive(pathname, href);
   const showBadge = badgeCount != null && badgeCount > 0;
@@ -50,21 +57,31 @@ function NavLink({
       : collapsed
         ? label
         : undefined;
+  const titleAttr = linkTitle ?? collapsedLabel;
   return (
-    <Link
-      href={href}
-      className={`app-sidebar-link${active ? " app-sidebar-link--active" : ""}${showBadge ? " app-sidebar-link--badged" : ""}`}
-      aria-label={collapsedLabel}
-      title={collapsedLabel}
-    >
-      <span className="app-sidebar-icon">{icon}</span>
-      {collapsed ? null : <span className="app-sidebar-link-label">{label}</span>}
-      {showBadge ? (
-        <span className="app-sidebar-badge" aria-hidden>
-          {badgeCount > 99 ? "99+" : badgeCount}
+    <span className="app-sidebar-link-hint-anchor">
+      <Link
+        href={href}
+        className={`app-sidebar-link${active ? " app-sidebar-link--active" : ""}${showBadge ? " app-sidebar-link--badged" : ""}`}
+        aria-label={collapsedLabel}
+        title={titleAttr}
+      >
+        <span className="app-sidebar-icon">{icon}</span>
+        {collapsed ? null : (
+          <span className="app-sidebar-link-label">{label}</span>
+        )}
+        {showBadge ? (
+          <span className="app-sidebar-badge" aria-hidden>
+            {badgeCount > 99 ? "99+" : badgeCount}
+          </span>
+        ) : null}
+      </Link>
+      {showCommandHotkey && commandHotkey ? (
+        <span className="app-sidebar-nav-hotkey-hint" aria-hidden>
+          {commandHotkey}
         </span>
       ) : null}
-    </Link>
+    </span>
   );
 }
 
@@ -74,8 +91,6 @@ export function Sidebar() {
   const commandMode = useCommandMode();
   const { data: session } = authClient.useSession();
   const [collapsed, setCollapsed] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsWrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     try {
@@ -86,20 +101,6 @@ export function Sidebar() {
       /* ignore */
     }
   }, []);
-
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (
-        settingsWrapRef.current &&
-        !settingsWrapRef.current.contains(e.target as Node)
-      ) {
-        setSettingsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [settingsOpen]);
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed((c) => {
@@ -116,14 +117,35 @@ export function Sidebar() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.key.toLowerCase() !== "b") return;
       if (e.repeat) return;
-      e.preventDefault();
-      toggleCollapsed();
+
+      if (e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        toggleCollapsed();
+        return;
+      }
+
+      const d = e.key;
+      const c = e.code;
+      if (d === "1" || c === "Digit1" || c === "Numpad1") {
+        e.preventDefault();
+        router.push("/dashboard");
+        return;
+      }
+      if (d === "2" || c === "Digit2" || c === "Numpad2") {
+        e.preventDefault();
+        router.push("/quizzes");
+        return;
+      }
+      if (d === "3" || c === "Digit3" || c === "Numpad3") {
+        e.preventDefault();
+        router.push("/settings");
+        return;
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [toggleCollapsed]);
+  }, [toggleCollapsed, router]);
 
   const user = session?.user;
 
@@ -138,34 +160,39 @@ export function Sidebar() {
       aria-label="Main navigation"
     >
       <div className="app-sidebar-top">
-        <button
-          type="button"
-          className="app-sidebar-collapse-btn"
-          onClick={toggleCollapsed}
-          aria-expanded={!collapsed}
-          aria-keyshortcuts="Meta+B Control+B"
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title="⌘B / Ctrl+B"
-        >
+        <div className="app-sidebar-link-hint-anchor">
+          <button
+            type="button"
+            className="app-sidebar-collapse-btn"
+            onClick={toggleCollapsed}
+            aria-expanded={!collapsed}
+            aria-keyshortcuts="Meta+B Control+B"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title="⌘B / Ctrl+B"
+          >
+            {collapsed ? (
+              <IconChevronRight className="app-sidebar-collapse-icon" />
+            ) : (
+              <IconChevronLeft className="app-sidebar-collapse-icon" />
+            )}
+          </button>
           {commandMode ? (
-            <span className="app-sidebar-hotkey-hint" aria-hidden>
+            <span className="app-sidebar-nav-hotkey-hint" aria-hidden>
               B
             </span>
-          ) : collapsed ? (
-            <IconChevronRight className="app-sidebar-collapse-icon" />
-          ) : (
-            <IconChevronLeft className="app-sidebar-collapse-icon" />
-          )}
-        </button>
+          ) : null}
+        </div>
       </div>
 
       <nav className="app-sidebar-nav">
         <NavLink
           href="/dashboard"
           label="Dashboard"
-          icon={<IconDashboard />}
+          icon={<IconHome />}
           collapsed={collapsed}
           pathname={pathname}
+          commandHotkey="1"
+          showCommandHotkey={commandMode}
         />
         <NavLink
           href="/quizzes"
@@ -179,55 +206,20 @@ export function Sidebar() {
               ? `${incompleteScheduledCount} incomplete scheduled quiz${incompleteScheduledCount === 1 ? "" : "zes"}`
               : undefined
           }
+          commandHotkey="2"
+          showCommandHotkey={commandMode}
+        />
+        <NavLink
+          href="/settings"
+          label="Settings"
+          icon={<IconSettings />}
+          collapsed={collapsed}
+          pathname={pathname}
+          commandHotkey="3"
+          showCommandHotkey={commandMode}
+          linkTitle="Settings (⌘3)"
         />
       </nav>
-
-      <div className="app-sidebar-footer">
-        <div className="app-sidebar-settings" ref={settingsWrapRef}>
-          <button
-            type="button"
-            className={`app-sidebar-link app-sidebar-settings-btn${settingsOpen ? " app-sidebar-link--active" : ""}`}
-            onClick={() => setSettingsOpen((o) => !o)}
-            aria-label={collapsed ? "Settings" : undefined}
-            title={collapsed ? "Settings" : undefined}
-            aria-expanded={settingsOpen}
-          >
-            <span className="app-sidebar-icon">
-              <IconSettings />
-            </span>
-            {collapsed ? null : <span>Settings</span>}
-          </button>
-          {settingsOpen ? (
-            <div className="app-sidebar-settings-panel" role="dialog">
-              {user ? (
-                <>
-                  <div className="app-sidebar-settings-user">
-                    <span className="app-sidebar-settings-name">
-                      {user.name ?? "Account"}
-                    </span>
-                    {user.email ? (
-                      <span className="app-sidebar-settings-email">
-                        {user.email}
-                      </span>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    className="app-sidebar-signout"
-                    onClick={() =>
-                      authClient.signOut({
-                        fetchOptions: { onSuccess: () => router.push("/") },
-                      })
-                    }
-                  >
-                    Sign out
-                  </button>
-                </>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      </div>
     </aside>
   );
 }
