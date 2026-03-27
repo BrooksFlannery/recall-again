@@ -14,7 +14,8 @@ type ScheduledQuizSkipReason = Extract<
   { ok: false }
 >["reason"];
 
-export async function POST(req: NextRequest) {
+/** Vercel Cron invokes this path with GET (see vercel.json). POST kept for manual triggers. */
+async function handleScheduledQuizzesCron(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = req.headers.get("authorization");
 
@@ -79,4 +80,12 @@ export async function POST(req: NextRequest) {
     skipReasonCounts,
     skipDetails,
   });
+}
+
+export async function GET(req: NextRequest) {
+  return handleScheduledQuizzesCron(req);
+}
+
+export async function POST(req: NextRequest) {
+  return handleScheduledQuizzesCron(req);
 }
