@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { NextRequest } from "next/server";
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 describe("cron route", () => {
   it("rejects bad secret", async () => {
@@ -21,6 +21,14 @@ describe("cron route", () => {
         }),
       );
       expect(res2.status).toBe(401);
+
+      const resGet = await GET(
+        new NextRequest("http://localhost/api/cron/scheduled-quizzes", {
+          method: "GET",
+          headers: { Authorization: "Bearer wrong-secret" },
+        }),
+      );
+      expect(resGet.status).toBe(401);
     } finally {
       if (originalSecret === undefined) {
         delete process.env.CRON_SECRET;
