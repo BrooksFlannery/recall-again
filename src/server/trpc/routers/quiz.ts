@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { Effect, Layer } from "effect";
 import { TRPCError } from "@trpc/server";
-import { MIN_FACTS_FOR_QUIZ } from "@/constants/quiz";
+import {
+  MIN_FACTS_FOR_QUIZ,
+  SKIPPED_QUIZ_ITEM_AI_REASONING,
+} from "@/constants/quiz";
 import { FactRepository, FactRepositoryLive } from "@/server/effect/fact-repository";
 import { gradeQuizItems } from "@/server/effect/quiz-grader";
 import {
@@ -166,8 +169,15 @@ export const quizRouter = router({
       ).pipe(Layer.provide(ctx.requestDbLayer));
 
       const gradeInputs: Parameters<typeof gradeQuizItems>[0] = [];
+      const skippedItemIds = new Set<string>();
 
       for (const item of sortedItems) {
+        const rawAnswer = answerMap.get(item.id) ?? "";
+        if (rawAnswer.trim() === "") {
+          skippedItemIds.add(item.id);
+          continue;
+        }
+
         const fact = await Effect.runPromise(
           Effect.gen(function* () {
             const repo = yield* FactRepository;
@@ -200,26 +210,48 @@ export const quizRouter = router({
           quizItemId: item.id,
           question: flashcard.question,
           canonicalAnswer: flashcard.canonicalAnswer,
-          userAnswer: answerMap.get(item.id) ?? "",
+          userAnswer: rawAnswer,
         });
       }
 
-      let graded: Awaited<ReturnType<typeof gradeQuizItems>>;
-      try {
-        graded = await gradeQuizItems(gradeInputs);
-      } catch {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Could not grade this quiz. Try again later.",
-        });
+      let graded: Awaited<ReturnType<typeof gradeQuizItems>> = [];
+      if (gradeInputs.length > 0) {
+        try {
+          graded = await gradeQuizItems(gradeInputs);
+        } catch {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Could not grade this quiz. Try again later.",
+          });
+        }
       }
 
-      const gradedPayload = graded.map((g) => ({
-        quizItemId: g.quizItemId,
-        userAnswer: answerMap.get(g.quizItemId) ?? "",
-        aiResult: g.result,
-        aiReasoning: g.reasoning,
-      }));
+      const gradedById = new Map(graded.map((g) => [g.quizItemId, g]));
+
+      const gradedPayload = sortedItems.map((item) => {
+        const userAnswer = answerMap.get(item.id) ?? "";
+        if (skippedItemIds.has(item.id)) {
+          return {
+            quizItemId: item.id,
+            userAnswer,
+            aiResult: "incorrect" as const,
+            aiReasoning: SKIPPED_QUIZ_ITEM_AI_REASONING,
+          };
+        }
+        const g = gradedById.get(item.id);
+        if (!g) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Could not grade this quiz. Try again later.",
+          });
+        }
+        return {
+          quizItemId: g.quizItemId,
+          userAnswer,
+          aiResult: g.result,
+          aiReasoning: g.reasoning,
+        };
+      });
 
       const result = await Effect.runPromise(
         Effect.gen(function* () {
