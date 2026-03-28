@@ -34,7 +34,10 @@ mock.module("@/server/effect/quiz-grader", () => ({
 
 import { and, eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { MIN_FACTS_FOR_QUIZ } from "@/constants/quiz";
+import {
+  MIN_FACTS_FOR_QUIZ,
+  SKIPPED_QUIZ_ITEM_AI_REASONING,
+} from "@/constants/quiz";
 import { db, schema, schemaApp } from "@/server/db";
 import { appRouter } from "@/server/trpc/root";
 import { createCallerFactory } from "@/server/trpc/trpc";
@@ -375,6 +378,31 @@ describe("submitQuiz", () => {
     } finally {
       await db.delete(schema.user).where(eq(schema.user.id, authA));
       await db.delete(schema.user).where(eq(schema.user.id, authB));
+    }
+  });
+
+  test("trim-empty answer skips AI and stores fixed incorrect reasoning", async () => {
+    mockGradeOutcome = "correct";
+    const { authUserId, appUser } = await createTestUser("skip_ai");
+    try {
+      const caller = makeCaller(appUser.id);
+      await createFacts(caller, MIN_FACTS_FOR_QUIZ, "skip");
+      const quiz = await caller.quiz.createManual({ factCount: 1 });
+      const quizItemId = quiz.items[0]!.id;
+
+      const out = await caller.quiz.submitQuiz({
+        quizId: quiz.id,
+        answers: [{ quizItemId: quizItemId, userAnswer: "   " }],
+      });
+
+      expect(out.correctCount).toBe(0);
+      expect(out.totalCount).toBe(1);
+      const item = out.items.find((i) => i.id === quizItemId);
+      expect(item?.aiResult).toBe("incorrect");
+      expect(item?.aiReasoning).toBe(SKIPPED_QUIZ_ITEM_AI_REASONING);
+      expect(item?.result).toBe("incorrect");
+    } finally {
+      await db.delete(schema.user).where(eq(schema.user.id, authUserId));
     }
   });
 
